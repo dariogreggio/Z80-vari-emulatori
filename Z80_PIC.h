@@ -23,7 +23,7 @@
 //#define REAL_SIZE    
 
 
-#define FCY 205000000ul    //Oscillator frequency; ricontrollato con baud rate, pare giusto così!
+#define FCY 204000000ul    //Oscillator frequency; ricontrollato con baud rate, pare giusto così!
 
 #define CPU_CLOCK_HZ             (FCY)    // CPU Clock Speed in Hz
 #define CPU_CT_HZ            (CPU_CLOCK_HZ/2)    // CPU CoreTimer   in Hz
@@ -34,14 +34,15 @@
 
 #define US_TO_CT_TICKS  (CPU_CT_HZ/1000000UL)    // uS to CoreTimer Ticks
     
-#define VERNUML 3
+#define VERNUML 4
 #define VERNUMH 1
 
-//#define ZX80 1
+#define ZX80 1
 //#define ZX81 1
 //#define SKYNET 1
 //#define NEZ80 1
-#define GALAKSIJA 1
+//#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
+                        // https://www.kernelcrash.com/blog/making-a-galaksija/2020/03/02/
 
 
 typedef char BOOL;
