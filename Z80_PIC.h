@@ -34,11 +34,11 @@
 
 #define US_TO_CT_TICKS  (CPU_CT_HZ/1000000UL)    // uS to CoreTimer Ticks
     
-#define VERNUML 4
+#define VERNUML 6
 #define VERNUMH 1
 
 #define ZX80 1
-//#define ZX81 1
+//#define ZX81 1      // 
 //#define SKYNET 1
 //#define NEZ80 1
 //#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
@@ -79,6 +79,7 @@ void myINTEnableSystemMultiVectoredInt(void);
 
 void ShortDelay(DWORD DelayCount);
 #define __delay_ms(n) ShortDelay(n*100000UL)
+#define __delay_ns(n) ShortDelay(n*100UL)
 
 #define ClrWdt() { WDTCONbits.WDTCLRKEY=0x5743; }
 
@@ -121,12 +122,15 @@ int decodeKBD(int, long, BOOL);
 BYTE GetValue(SWORD);
 SWORD GetIntValue(SWORD);
 void PutValue(SWORD, BYTE);
-BYTE InValue(BYTE);
-void OutValue(BYTE, BYTE);
+BYTE InValue(SWORD);
+void OutValue(SWORD, BYTE);
 int Emulate(int);
 
 #ifdef SKYNET
 int UpdateScreen(WORD);
+#endif
+#ifdef ZX80
+int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i);
 #endif
 #ifdef GALAKSIJA
 int UpdateScreen(SWORD rowIni, SWORD rowFin);

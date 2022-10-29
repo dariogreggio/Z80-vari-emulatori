@@ -89,7 +89,7 @@
 
 
 const char CopyrightString[]= {'Z','8','0',' ','E','m','u','l','a','t','o','r',' ','v',
-	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '2','6','/','1','0','/','2','2', 0 };
+	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '2','9','/','1','0','/','2','2', 0 };
 
 const char Copyr1[]="(C) Dario's Automation 2019-2022 - G.Dar\xd\xa\x0";
 
@@ -121,6 +121,10 @@ extern BYTE KBDataI,KBDataO,KBControl /*,KBStatus*/, KBRAM[32];
 extern const unsigned char fontLCD_eu[],fontLCD_jp[];
 #endif
 #ifdef ZX80
+extern volatile BYTE TIMIRQ;
+extern BYTE Keyboard[8];
+#endif
+#ifdef ZX81
 extern volatile BYTE TIMIRQ;
 extern BYTE Keyboard[8];
 #endif
@@ -419,11 +423,12 @@ The BIOS thus needs to 'execute' each character line eight times, before startin
 #define HORIZ_SIZE 256
 #define VERT_SIZE 192
 #define REAL_SIZE    1      // diciamo :)
-int UpdateScreen(SWORD rowIni, SWORD rowFin) {
+int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
 	register int i,j;
-	int k,y1,y2,x1,x2,row1,row2;
-	register BYTE *p,*p1,*D_FILE;
-  BYTE ch;
+	int k,y1,y2,x2,row1,row2,curvideopos,oldvideopos,usedpos;
+	register BYTE *p,*p1;
+  SWORD D_FILE;
+  BYTE ch,invert;
 
   // ci mette circa 25mS ogni passata... [[dovrebbe essere la metà... (viene chiamata circa 25-30 volte al secondo e ora siamo a 40mS invece di 20, 16/10/22)
   
@@ -436,47 +441,89 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
   y1=row1/8;
   y2=row2/8;
   y2=min(y2,VERT_SIZE/8);
-  x1=0;
 #ifdef REAL_SIZE    
   x2=160/8;
-  y2=128/8;    // 
+//  y2=128/8;    // 
+  y2=192/8  +1  ;    // voglio/devo visualizzare le righe inferiori...
+  if(rowIni>=128)
+    rowIni=128;
+  if(rowFin>=128)
+    rowFin=128;
 #else
   x2=HORIZ_SIZE/8;
+  
+  y2=25; /// CAPIRE PERCHé ce n'è uno in +...
 #endif
   START_WRITE();
   setAddrWindow(0,rowIni,_width,rowFin-rowIni);
+  D_FILE=MAKEWORD(ram_seg[0x000c],ram_seg[0x000d]);     // 400Ch
+  if(D_FILE<0x4000)
+    return;
+  curvideopos=oldvideopos=0;
   for(i=y1; i<y2; i++) {
+    curvideopos=oldvideopos;
 #ifdef REAL_SIZE    
     for(k=0; k<8; k++) {      // scanline del carattere da plottare
 #else
-    for(k=0; k<6; k++) {      // scanline del carattere da plottare
+    for(k=0; k<8; k++) {      // scanline del carattere da plottare
 #endif
-      D_FILE=MAKEWORD(ram_seg[0x000c],ram_seg[0x000d]);
-      p1=((BYTE*)&ram_seg[0x0000])+i*(HORIZ_SIZE/8);    // carattere a inizio riga
-      for(j=x1; j<x2; j++) {
-        ch=*p1 & 0x3f;      // v. pdf slide 2250_presentacija
-        if(*p1 & 0x80)
-          ch |= 0x40;
-        p=((BYTE*)&rom_seg)+0x0e00+(ch)+k*128;    // pattern del carattere da disegnare
-        ch=*p;
+      usedpos=0;
+      p1=((BYTE*)&ram_seg[D_FILE+curvideopos-0x4000]);    // carattere a inizio riga corrente
+      for(j=0; j<HORIZ_SIZE/8; j++) {
+        ch=*p1;
+        if(ch != 0x76) {
+          invert=ch & 0x80;
+          ch &= 0x3f;
+          // si potrebbe usare I << 8
+          p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k;    // pattern del carattere da disegnare
+          ch=*p;
+          p1++;
+          curvideopos++;
+          usedpos++;
+          }
+        else {
+          invert=ch=0;
+          }
 
 #ifdef REAL_SIZE    
-        writedata16(ch & 0x1 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x2 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x4 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x8 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x10 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x20 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x40 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x80 ? BLACK : WHITE);     // 
-
+        if(i>=9 && j<x2) {
+          if(invert) {
+            writedata16(ch & 0x80 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x40 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x20 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x8 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x4 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x2 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x1 ? WHITE : BLACK);     // 
+            }
+          else {
+            writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x20 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x4 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x2 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x1 ? BLACK : WHITE);     // 
+            }
+          }
 #else
 
-        writedata16(ch & 0x1 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x4 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x10 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x40 ? BLACK : WHITE);     // 
-        writedata16(ch & 0x80 ? BLACK : WHITE);     // 5:8 -> 256:160
+        if(invert) {
+          writedata16(ch & 0x80 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x40 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x8 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x4 ? WHITE : BLACK);     // 5:8 -> 256:160
+          }
+        else {
+          writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x4 ? BLACK : WHITE);     // 5:8 -> 256:160
+          }
         
 #ifdef USA_SPI_HW
         ClrWdt();
@@ -484,13 +531,16 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
   //	writecommand(CMD_NOP);
 #endif
     
-        p1++;
         }
 #ifndef REAL_SIZE    
-      if(k==4)
+      if(k==1 || k==4 || k==6)
         k++;
 #endif
+
+      curvideopos=oldvideopos;
+
       }
+    oldvideopos=curvideopos+usedpos+1;
 
     }
   
@@ -503,6 +553,135 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
 #endif
 #ifdef ZX81
 //https://problemkaputt.de/zxdocs.htm#zx80zx81videomodetextandblockgraphics
+#define HORIZ_SIZE 256
+#define VERT_SIZE 192
+#define REAL_SIZE    1      // diciamo :)
+int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
+	register int i,j;
+	int k,y1,y2,x2,row1,row2,curvideopos,oldvideopos,usedpos;
+	register BYTE *p,*p1;
+  SWORD D_FILE;
+  BYTE ch,invert;
+
+  // ci mette circa 25mS ogni passata... [[dovrebbe essere la metà... (viene chiamata circa 25-30 volte al secondo e ora siamo a 40mS invece di 20, 16/10/22)
+  
+	// per SPI DMA https://www.microchip.com/forums/m1110777.aspx#1110777
+
+  LED3 = 1;
+
+  row1=rowIni;
+  row2=rowFin;
+  y1=row1/8;
+  y2=row2/8;
+  y2=min(y2,VERT_SIZE/8);
+#ifdef REAL_SIZE    
+  x2=160/8;
+//  y2=128/8;    // 
+  y2=192/8  +1  ;    // voglio/devo visualizzare le righe inferiori...
+  if(rowIni>=128)
+    rowIni=128;
+  if(rowFin>=128)
+    rowFin=128;
+#else
+  x2=HORIZ_SIZE/8;
+  
+  y2=25; /// CAPIRE PERCHé ce n'è uno in +...
+#endif
+  START_WRITE();
+  setAddrWindow(0,rowIni,_width,rowFin-rowIni);
+  D_FILE=MAKEWORD(ram_seg[0x000c],ram_seg[0x000d]);     // 400Ch
+  if(D_FILE<0x4000)
+    return;
+  curvideopos=oldvideopos=0;
+  for(i=y1; i<y2; i++) {
+    curvideopos=oldvideopos;
+#ifdef REAL_SIZE    
+    for(k=0; k<8; k++) {      // scanline del carattere da plottare
+#else
+    for(k=0; k<8; k++) {      // scanline del carattere da plottare
+#endif
+      usedpos=0;
+      p1=((BYTE*)&ram_seg[D_FILE+curvideopos-0x4000]);    // carattere a inizio riga corrente
+      for(j=0; j<HORIZ_SIZE/8; j++) {
+        ch=*p1;
+        if(ch != 0x76) {
+          invert=ch & 0x80;
+          ch &= 0x3f;
+          // si potrebbe usare I << 8
+          p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k;    // pattern del carattere da disegnare
+          ch=*p;
+          p1++;
+          curvideopos++;
+          usedpos++;
+          }
+        else {
+          invert=ch=0;
+          }
+
+#ifdef REAL_SIZE    
+        if(i>=9 && j<x2) {
+          if(invert) {
+            writedata16(ch & 0x80 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x40 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x20 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x8 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x4 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x2 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x1 ? WHITE : BLACK);     // 
+            }
+          else {
+            writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x20 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x4 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x2 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x1 ? BLACK : WHITE);     // 
+            }
+          }
+#else
+
+        if(invert) {
+          writedata16(ch & 0x80 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x40 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x8 ? WHITE : BLACK);     // 
+          writedata16(ch & 0x4 ? WHITE : BLACK);     // 5:8 -> 256:160
+          }
+        else {
+          writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+          writedata16(ch & 0x4 ? BLACK : WHITE);     // 5:8 -> 256:160
+          }
+        
+#ifdef USA_SPI_HW
+        ClrWdt();
+#endif
+  //	writecommand(CMD_NOP);
+#endif
+    
+        }
+#ifndef REAL_SIZE    
+      if(k==1 || k==4 || k==6)
+        k++;
+#endif
+
+      curvideopos=oldvideopos;
+
+      }
+    oldvideopos=curvideopos+usedpos+1;
+
+    }
+  
+  END_WRITE();
+    
+  LED3 = 0;
+  
+	}
 #endif
 #ifdef ZXSPECTRUM
 //    6144 bytes worth of bitmap data, starting at memory address &4000
@@ -4001,8 +4180,14 @@ int main(void) {
 #endif
 #ifdef ZX80
  	setTextColor(BRIGHTCYAN);
-	LCDXY(4,13);
+	LCDXY(5,13);
 	gfx_print("(emulating ZX80)");
+  __delay_ms(1000);
+#endif
+#ifdef ZX81
+ 	setTextColor(BRIGHTCYAN);
+	LCDXY(5,13);
+	gfx_print("(emulating ZX81)");
   __delay_ms(1000);
 #endif
 
@@ -4162,7 +4347,7 @@ void ShortDelay(                       // Short Delay
 {
   DWORD StartTime;                    // Start Time
   StartTime = ReadCoreTimer();         // Get CoreTimer value for StartTime
-  while ( (DWORD )(ReadCoreTimer() - StartTime) < DelayCount ) 
+  while( (DWORD)(ReadCoreTimer() - StartTime) < DelayCount)
     ClrWdt();
   }
  
@@ -4295,173 +4480,344 @@ int emulateKBD(BYTE ch) {
 
 #ifdef SKYNET
 #elif ZX80
-#elif ZX81
- 
-	switch(ch) {
+  
+	switch(toupper(ch)) {   // solo maiuscole qua..
     case 0:
+      for(i=0; i<8; i++)
+        Keyboard[i]=0xff;
+      // FORSE non dovremmo rilasciare i modifier, qua???
       break;
-		case ' ':
-      i=0x39;
-			break;
-		case 'A':
-      i=0x1e;
-			break;
-		case 'B':
-      i=0x30;
-			break;
-		case 'C':
-      i=0x2e;
-			break;
-		case 'D':
-      i=0x20;
-			break;
-		case 'E':
-      i=0x12;
-			break;
-		case 'F':
-      i=0x21;
-			break;
-		case 'G':
-      i=0x22;
-			break;
-		case 'H':
-      i=0x23;
-			break;
-		case 'I':
-      i=0x17;
-			break;
-		case 'J':
-      i=0x24;
-			break;
-		case 'K':
-      i=0x25;
-			break;
-		case 'L':
-      i=0x26;
-			break;
-		case 'M':
-      i=0x32;
-			break;
-		case 'N':
-      i=0x31;
-			break;
-		case 'O':
-      i=0x17;
-			break;
-		case 'P':
-      i=0x19;
-			break;
-		case 'Q':
-      i=0x10;
-			break;
-		case 'R':
-      i=0x13;
-			break;
-		case 'S':
-      i=0x1f;
-			break;
-		case 'T':
-      i=0x14;
-			break;
-		case 'U':
-      i=0x16;
-			break;
-		case 'V':
-      i=0x2f;
-			break;
-		case 'W':
-      i=0x11;
-			break;
-		case 'X':
-      i=0x2d;
-			break;
-		case 'Y':
-      i=0x15;
-			break;
-		case 'Z':
-      i=0x2c;
-			break;
-		case '0':
-      i=0x2;
-			break;
-		case '1':
-      i=0x3;
-			break;
-		case '2':
-      i=0x4;
-			break;
-		case '3':
-      i=0x5;
-			break;
-		case '4':
-      i=0x6;
-			break;
-		case '5':
-      i=0x7;
-			break;
-		case '6':
-      i=0x8;
-			break;
-		case '7':
-      i=0x9;
-			break;
-		case '8':
-      i=0xa;
-			break;
-		case '9':
-      i=0xb;
-			break;
-		case '.':
-      i=0x34;
-			break;
-		case ':':     // + shift
-      i=0x34;
-			break;
-		case ',':
-      i=0x33;
-			break;
 		case '£':
+			Keyboard[0] &= ~0b00000001;
+		case ' ':
+			Keyboard[7] &= ~0b00000001;
+			break;
+      // minuscole/maiuscole?
+		case 'A':
+			Keyboard[1] &= ~0b00000001;
+			break;
+		case '|':    // OR ...
+			Keyboard[0] &= ~0b00000001;
+		case 'B':
+			Keyboard[7] &= ~0b00010000;
 			break;
 		case '?':
-      i=0x35;     // + shift
+			Keyboard[0] &= ~0b00000001;
+		case 'C':
+			Keyboard[0] &= ~0b00001000;
+			break;
+		case 'D':
+			Keyboard[1] &= ~0b00000100;
+			break;
+		case 'E':
+			Keyboard[2] &= ~0b00000100;
+			break;
+		case 'F':
+			Keyboard[1] &= ~0b00001000;
+			break;
+		case 'G':
+			Keyboard[1] &= ~0b00010000;
+			break;
+		case '^':   // ** doppio asterisco in effetti ...
+			Keyboard[0] &= ~0b00000001;
+		case 'H':
+			Keyboard[6] &= ~0b00010000;
+			break;
+		case '(':
+			Keyboard[0] &= ~0b00000001;
+		case 'I':
+			Keyboard[5] &= ~0b00000100;
+			break;
+		case '-':
+			Keyboard[0] &= ~0b00000001;
+		case 'J':
+			Keyboard[6] &= ~0b00001000;
+			break;
+		case '+':
+			Keyboard[0] &= ~0b00000001;
+		case 'K':
+			Keyboard[6] &= ~0b00000100;
+			break;
+		case '=':
+			Keyboard[0] &= ~0b00000001;
+		case 'L':
+			Keyboard[6] &= ~0b00000010;
+			break;
+		case '>':
+			Keyboard[0] &= ~0b00000001;
+		case 'M':
+			Keyboard[7] &= ~0b00000100;
+			break;
+		case '<':
+			Keyboard[0] &= ~0b00000001;
+		case 'N':
+			Keyboard[7] &= ~0b00001000;
+			break;
+		case ')':
+			Keyboard[0] &= ~0b00000001;
+		case 'O':
+			Keyboard[5] &= ~0b00000010;
+			break;
+		case '*':
+			Keyboard[0] &= ~0b00000001;
+		case 'P':
+			Keyboard[5] &= ~0b00000001;
+			break;
+		case 'Q':
+			Keyboard[2] &= ~0b00000001;
+			break;
+		case 'R':
+			Keyboard[2] &= ~0b00001000;
+			break;
+		case 'S':
+			Keyboard[1] &= ~0b00000010;
+			break;
+		case 'T':
+			Keyboard[2] &= ~0b00010000;
+			break;
+		case '$':
+			Keyboard[0] &= ~0b00000001;
+		case 'U':
+			Keyboard[5] &= ~0b00001000;
+			break;
+		case '/':
+			Keyboard[0] &= ~0b00000001;
+		case 'V':
+			Keyboard[0] &= ~0b00010000;
+			break;
+		case 'W':
+			Keyboard[2] &= ~0b00000010;
+			break;
+		case ';':
+			Keyboard[0] &= ~0b00000001;
+		case 'X':
+			Keyboard[0] &= ~0b00000100;
+			break;
+		case '\"':
+			Keyboard[0] &= ~0b00000001;
+		case 'Y':
+			Keyboard[5] &= ~0b00010000;
+			break;
+		case ':':
+			Keyboard[0] &= ~0b00000001;
+		case 'Z':
+			Keyboard[0] &= ~0b00000010;
+			break;
+      
+		case '0':
+			Keyboard[4] &= ~0b00000001;
+			break;
+		case '1':
+			Keyboard[3] &= ~0b00000001;
+			break;
+		case '2':
+			Keyboard[3] &= ~0b00000010;
+			break;
+		case '3':
+			Keyboard[3] &= ~0b00000100;
+			break;
+		case '4':
+			Keyboard[3] &= ~0b00001000;
+			break;
+		case '5':
+			Keyboard[3] &= ~0b00010000;
+			break;
+		case '6':
+			Keyboard[4] &= ~0b00010000;
+			break;
+		case '7':
+			Keyboard[4] &= ~0b00001000;
+			break;
+		case '8':
+			Keyboard[4] &= ~0b00000100;
+			break;
+		case '9':
+			Keyboard[4] &= ~0b00000010;
+			break;
+		case ',':
+			Keyboard[0] &= ~0b00000001;
+		case '.':
+			Keyboard[7] &= ~0b00000010;
 			break;
 		case '\r':
-      i=0x1c;
-			break;
-		case '\n':
-			break;
-		case '\x1b':
-      i=0x1;
+			Keyboard[6] &= ~0b00000001;
 			break;
       
-		case 129:     // shift...
-      i=0x36;
-			break;
-		case 130:     // alt
-      i=0x38;
-			break;
-		case 131:     // ctrl
-      i=0x1d;
+		case 0x1f:    // Shift 
+			Keyboard[0] &= ~0b00000001;
 			break;
       
-    default:
-      goto no_irq;
-      break;
-      
-// 	cmp	al,0x36 ; Shift?
-//	cmp	al,0x38 ; Alt?
-//	cmp	al,0x1d ; Ctrl?
-
 		}
   
-  if(!i)
-    Keyboard[0] |= 0x80;
-  else
-    Keyboard[0]=i;
-
-  KBStatus |= 2;    // 
-  if(KBControl & 1)   // https://www.tayloredge.com/reference/Interface/atkeyboard.pdf
-    KBDIRQ=1;
+#elif ZX81
+ 
+	switch(toupper(ch)) {   // solo maiuscole qua..
+    case 0:
+      for(i=0; i<8; i++)
+        Keyboard[i]=0xff;
+      // FORSE non dovremmo rilasciare i modifier, qua???
+      break;
+		case '£':
+			Keyboard[0] &= ~0b00000001;
+		case ' ':
+			Keyboard[7] &= ~0b00000001;
+			break;
+      // minuscole/maiuscole?
+		case 'A':
+			Keyboard[1] &= ~0b00000001;
+			break;
+		case '|':    // OR ...
+			Keyboard[0] &= ~0b00000001;
+		case 'B':
+			Keyboard[7] &= ~0b00010000;
+			break;
+		case '?':
+			Keyboard[0] &= ~0b00000001;
+		case 'C':
+			Keyboard[0] &= ~0b00001000;
+			break;
+		case 'D':
+			Keyboard[1] &= ~0b00000100;
+			break;
+		case 'E':
+			Keyboard[2] &= ~0b00000100;
+			break;
+		case 'F':
+			Keyboard[1] &= ~0b00001000;
+			break;
+		case 'G':
+			Keyboard[1] &= ~0b00010000;
+			break;
+		case '^':   // ** doppio asterisco in effetti ...
+			Keyboard[0] &= ~0b00000001;
+		case 'H':
+			Keyboard[6] &= ~0b00010000;
+			break;
+		case '(':
+			Keyboard[0] &= ~0b00000001;
+		case 'I':
+			Keyboard[5] &= ~0b00000100;
+			break;
+		case '-':
+			Keyboard[0] &= ~0b00000001;
+		case 'J':
+			Keyboard[6] &= ~0b00001000;
+			break;
+		case '+':
+			Keyboard[0] &= ~0b00000001;
+		case 'K':
+			Keyboard[6] &= ~0b00000100;
+			break;
+		case '=':
+			Keyboard[0] &= ~0b00000001;
+		case 'L':
+			Keyboard[6] &= ~0b00000010;
+			break;
+		case '>':
+			Keyboard[0] &= ~0b00000001;
+		case 'M':
+			Keyboard[7] &= ~0b00000100;
+			break;
+		case '<':
+			Keyboard[0] &= ~0b00000001;
+		case 'N':
+			Keyboard[7] &= ~0b00001000;
+			break;
+		case ')':
+			Keyboard[0] &= ~0b00000001;
+		case 'O':
+			Keyboard[5] &= ~0b00000010;
+			break;
+		case '*':
+			Keyboard[0] &= ~0b00000001;
+		case 'P':
+			Keyboard[5] &= ~0b00000001;
+			break;
+		case 'Q':
+			Keyboard[2] &= ~0b00000001;
+			break;
+		case 'R':
+			Keyboard[2] &= ~0b00001000;
+			break;
+		case 'S':
+			Keyboard[1] &= ~0b00000010;
+			break;
+		case 'T':
+			Keyboard[2] &= ~0b00010000;
+			break;
+		case '$':
+			Keyboard[0] &= ~0b00000001;
+		case 'U':
+			Keyboard[5] &= ~0b00001000;
+			break;
+		case '/':
+			Keyboard[0] &= ~0b00000001;
+		case 'V':
+			Keyboard[0] &= ~0b00010000;
+			break;
+		case 'W':
+			Keyboard[2] &= ~0b00000010;
+			break;
+		case ';':
+			Keyboard[0] &= ~0b00000001;
+		case 'X':
+			Keyboard[0] &= ~0b00000100;
+			break;
+		case '\"':
+			Keyboard[0] &= ~0b00000001;
+		case 'Y':
+			Keyboard[5] &= ~0b00010000;
+			break;
+		case ':':
+			Keyboard[0] &= ~0b00000001;
+		case 'Z':
+			Keyboard[0] &= ~0b00000010;
+			break;
+      
+		case '0':
+			Keyboard[4] &= ~0b00000001;
+			break;
+		case '1':
+			Keyboard[3] &= ~0b00000001;
+			break;
+		case '2':
+			Keyboard[3] &= ~0b00000010;
+			break;
+		case '3':
+			Keyboard[3] &= ~0b00000100;
+			break;
+		case '4':
+			Keyboard[3] &= ~0b00001000;
+			break;
+		case '5':
+			Keyboard[3] &= ~0b00010000;
+			break;
+		case '6':
+			Keyboard[4] &= ~0b00010000;
+			break;
+		case '7':
+			Keyboard[4] &= ~0b00001000;
+			break;
+		case '8':
+			Keyboard[4] &= ~0b00000100;
+			break;
+		case '9':
+			Keyboard[4] &= ~0b00000010;
+			break;
+		case ',':
+			Keyboard[0] &= ~0b00000001;
+		case '.':
+			Keyboard[7] &= ~0b00000010;
+			break;
+		case '\r':
+			Keyboard[6] &= ~0b00000001;
+			break;
+      
+		case 0x1f:    // Shift 
+			Keyboard[0] &= ~0b00000001;
+			break;
+      
+		}
 
 #elif NEZ80
 	switch(ch) {
@@ -4733,9 +5089,27 @@ no_irq:
 
 BYTE whichKeysFeed=0;
 char keysFeed[32]={0};
-volatile BYTE keysFeedPtr=0;
+volatile BYTE keysFeedPtr=255;
 #ifdef NEZ80
 const char *keysFeed1="02E1\r";
+const char *keysFeed2="03E5\r";
+#elif ZX80
+//const char *keysFeed1="O\"ZX\",80\r";   // print
+const char *keysFeed1="4Y\r";   // 
+//const char *keysFeed2="1Fi=1 419\r";   // 1 for I=1 to 19  \x1F= SHIFT no non va così..
+const char *keysFeed2="1\r";   // 1 
+const char *keysFeed3="2Oi,\r";   // 2 PRINT I,
+const char *keysFeed4="3G1\r";   // 
+const char *keysFeed5="R\r";   // RUN
+const char *keysFeed6="A\r";   // LIST
+#elif ZX81
+const char *keysFeed1="O\"ZX\",80\r";   // print
+//const char *keysFeed2="1Fi=1 419\r";   // 1 for I=1 to 19  \x1F= SHIFT no non va così..
+const char *keysFeed2="1\r";   // 1 
+const char *keysFeed3="2Oi,\r";   // 2 PRINT I,
+const char *keysFeed4="3G1\r";   // 
+const char *keysFeed5="R\r";   // RUN
+const char *keysFeed6="A\r";   // LIST
 #elif GALAKSIJA
 const char *keysFeed2="PRINT \"CIAO\"\r";   // no minuscole
 const char *keysFeed1="PRINT 512,476    \r";   // 
@@ -4752,18 +5126,36 @@ void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
   static BYTE keysFeedPhase=0;
   int i;
 
+#ifdef SKYNET
+#define TIMIRQ_DIVIDER 32   // 
+#elif NEZ80
+#define TIMIRQ_DIVIDER 32   // si potrebbe modificare e rallentare qua, v.sotto
+#elif ZX80
+#define TIMIRQ_DIVIDER 32    // non usato (v. Refresh _r)
+#elif ZX81
+#define TIMIRQ_DIVIDER 1    // HSync...
+#elif GALAKSIJA
+#define TIMIRQ_DIVIDER 32   // 50Hz
+#endif
+  
   //LED2 ^= 1;      // check timing: 1600Hz, 9/11/19 (fuck berlin day)) 2022 ok fuck UK ;) & anyone
   
   divider++;
 #ifdef USING_SIMULATOR
   if(divider>=1) {   // 
 #else
-  if(divider>=32) {   // 50 Hz ... ?
+  if(divider>=TIMIRQ_DIVIDER) {   //
 #endif
     divider=0;
 //    CIA1IRQ=1;
 #ifdef NEZ80
     TIMIRQ=1;
+#endif
+#ifdef ZX80
+    TIMIRQ=1;     // 50Hz, come VSync NON USATO!
+#endif
+#ifdef ZX81
+    TIMIRQ=1;     // 15625Hz, come HSync
 #endif
 #ifdef GALAKSIJA
     TIMIRQ=1;     // 50Hz, come VSync
@@ -4833,12 +5225,71 @@ void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
 		}
 #endif
   
-#if defined(NEZ80) || defined(GALAKSIJA)
-  if(keysFeedPtr==255) {
-		whichKeysFeed++;
+#if defined(NEZ80) || defined(ZX80) || defined(ZX81) || defined(GALAKSIJA)
+  if(keysFeedPtr==255)      // EOL
+    goto fine;
+  if(keysFeedPtr==254) {    // NEW string
+    keysFeedPtr=0;
+    keysFeedPhase=0;
 #ifdef NEZ80
-		strcpy(keysFeed,keysFeed1);
-		if(whichKeysFeed>=1)
+		switch(whichKeysFeed) {
+			case 0:
+				strcpy(keysFeed,keysFeed1);
+				break;
+			case 1:
+				strcpy(keysFeed,keysFeed2);
+				break;
+      }
+		whichKeysFeed++;
+		if(whichKeysFeed>=2)
+			whichKeysFeed=0;
+#elif ZX80
+		switch(whichKeysFeed) {
+			case 0:
+				strcpy(keysFeed,keysFeed1);
+				break;
+			case 1:
+				strcpy(keysFeed,keysFeed2);
+				break;
+			case 2:
+				strcpy(keysFeed,keysFeed3);
+				break;
+			case 3:
+				strcpy(keysFeed,keysFeed4);
+				break;
+			case 4:
+				strcpy(keysFeed,keysFeed5);
+				break;
+			case 5:
+				strcpy(keysFeed,keysFeed6);
+				break;
+			}
+		whichKeysFeed++;
+		if(whichKeysFeed>5)
+			whichKeysFeed=0;
+#elif ZX81
+		switch(whichKeysFeed) {
+			case 0:
+				strcpy(keysFeed,keysFeed1);
+				break;
+			case 1:
+				strcpy(keysFeed,keysFeed2);
+				break;
+			case 2:
+				strcpy(keysFeed,keysFeed3);
+				break;
+			case 3:
+				strcpy(keysFeed,keysFeed4);
+				break;
+			case 4:
+				strcpy(keysFeed,keysFeed5);
+				break;
+			case 5:
+				strcpy(keysFeed,keysFeed6);
+				break;
+			}
+		whichKeysFeed++;
+		if(whichKeysFeed>5)
 			whichKeysFeed=0;
 #elif GALAKSIJA
 		switch(whichKeysFeed) {
@@ -4858,13 +5309,15 @@ void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
 				strcpy(keysFeed,keysFeed5);
 				break;
 			}
-		if(whichKeysFeed>=4)
+		whichKeysFeed++;
+		if(whichKeysFeed>4)
 			whichKeysFeed=0;
 #endif
+//    goto fine;
 		}
   if(keysFeed[keysFeedPtr]) {
     dividerEmulKbd++;
-    if(dividerEmulKbd>=300 /*300*/) {   // ~.2Hz per emulazione tastiera! (più veloce di tot non va...))
+    if(dividerEmulKbd>=500 /*300*/) {   // ~.2Hz per emulazione tastiera! (più veloce di tot non va...))
       dividerEmulKbd=0;
       if(!keysFeedPhase) {
 #ifdef NEZ80
@@ -4880,6 +5333,12 @@ void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
           goto wait_kbd;
 #endif
         keysFeedPhase=0;
+#ifdef ZX80
+        emulateKBD(NULL);
+#endif
+#ifdef ZX81
+        emulateKBD(NULL);
+#endif
 #ifdef GALAKSIJA
         emulateKBD(NULL);
 #endif
@@ -4888,8 +5347,11 @@ wait_kbd: ;
         }
       }
     }
+  else
+    keysFeedPtr=255;
 #endif
     
+fine:
   IFS0CLR = _IFS0_T3IF_MASK;
   }
 

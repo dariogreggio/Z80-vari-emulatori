@@ -31,11 +31,11 @@ BYTE fExit=0;
 BYTE debug=0;
 #ifdef ZX80
 #define RAM_START 0x4000
-#define RAM_SIZE 4096
+#define RAM_SIZE 1024
 #define ROM_SIZE 4096				// 4K, ZX80; 8K, ZX81
 #elif ZX81
 #define RAM_START 0x4000
-#define RAM_SIZE 4096
+#define RAM_SIZE 1024
 #define ROM_SIZE 8192				// 4K, ZX80; 8K, ZX81
 #elif SKYNET
 #define RAM_START 0x8000
@@ -93,7 +93,24 @@ BYTE sense50Hz;
 volatile BYTE MUXcnt;
 #endif
 #ifdef ZX80
+volatile BYTE TIMIRQ,lineCntr;
 //http://searle.x10host.com/zx80/zx80.html
+BYTE Keyboard[8]={255,255,255,255,255,255,255,255};
+/* There are forty ($28) system variables followed by Program area
+; These are located at the start of RAM.
+;
+; +---------+---------+-----------+---+-----------+-----------+-------+-------+
+; |         |         |           |   |           |           |       |       |
+; | SYSVARS | Program | Variables |80h| WKG Space | Disp File | Spare | Stack |
+; |         |         |           |   |           |           |       |       |
+; +---------+---------+-----------+---+-----------+-----------+-------+-------+
+;           ^         ^               ^           ^     ^     ^       ^
+;         $4024      VARS            E_LINE    D_FILE       DF_END   SP
+;                                                     DF_EA
+*/
+#endif
+#ifdef ZX81
+volatile BYTE TIMIRQ,NMIGenerator=0;
 BYTE Keyboard[8]={255,255,255,255,255,255,255,255};
 #endif
 #ifdef GALAKSIJA
@@ -175,6 +192,12 @@ BYTE GetValue(SWORD t) {
 		i=rom_seg[t];
 		}
 #else
+#ifdef ZX80
+	t &= 0x7fff;
+#endif
+#ifdef ZX81
+	t &= 0x7fff;
+#endif
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
 		i=rom_seg[t];
 		}
@@ -263,15 +286,22 @@ BYTE GetValue(SWORD t) {
 //  all'indirizzo+0 c'è la porta dati (in/out), a +2 i fili C/D, RW e E (E2)
 #define IO_BOARD_ADDRESS 0x00
 #endif
-BYTE InValue(BYTE t) {    // OCCHIO pare che siano 16bit anche I/O!
+BYTE InValue(SWORD t) {    // OCCHIO pare che siano 16bit anche I/O!
 	register BYTE i,j;
 
 #ifdef ZX80
 //  https://electronics.stackexchange.com/questions/51460/how-does-the-zx80-keyboard-avoid-ghosting-and-masking
+/*Input from Port FEh (or any other port with A0 zero)
+Reading from this port initiates the Vertical Retrace period (and accordingly,
+Cassette Output becomes Low), and resets the LINECNTR register to zero,
+LINECNTR remains stopped/zero until user terminates retrace - In the ZX81, all
+of the above happens only if NMIs are disabled.
+Bit Expl.
+0-4 Keyboard column bits (0=Pressed)
+5 Not used (1)
+6 Display Refresh Rate (0=60Hz, 1=50Hz)
+7 Cassette input (0=Normal, 1=Pulse)*/
   switch(t) {
-    case 0xFE:
-      i = Keyboard[0];
-  // dipende da A15..A8 ... come fare??
 /*          A8   A9  A10  A11  A12  A13  A14  A15  Keyboard layout
             |    |    |    |    |    |    |    |
     K4 -    V    G    T    5    6    Y    H    B
@@ -282,11 +312,69 @@ BYTE InValue(BYTE t) {    // OCCHIO pare che siano 16bit anche I/O!
 
 (I'm using K0-K5 to be the inputs to IC 10)
 Lines K0,K1,K2,K3,K4 are pulled to 5V by R13,R14,R15,R16,R17*/
+/*    Port____Line____Bit__0____1____2____3____4__
+FEFEh 0 (A8) SHIFT Z X C V
+FDFEh 1 (A9) A S D F G
+FBFEh 2 (A10) Q W E R T
+F7FEh 3 (A11) 1 2 3 4 5
+EFFEh 4 (A12) 0 9 8 7 6
+DFFEh 5 (A13) P O I U Y
+BFFEh 6 (A14) ENTER L K J H
+7FFEh 7 (A15) SPC . M N B*/
+    case 0xFEFE:
+      i = Keyboard[0];
+      break;
+    case 0xFDFE:
+      i = Keyboard[1];
+      break;
+    case 0xFBFE:
+      i = Keyboard[2];
+      break;
+    case 0xF7FE:
+      i = Keyboard[3];
+      break;
+    case 0xEFFE:
+      i = Keyboard[4];
+      break;
+    case 0xDFFE:
+      i = Keyboard[5];
+      break;
+    case 0xBFFE:
+      i = Keyboard[6];
+      break;
+    case 0x7FFE:
+      i = Keyboard[7];
       break;
     }
 #elif ZX81
-#elif SKYNET
   switch(t) {
+    case 0xFEFE:
+      i = Keyboard[0];
+      break;
+    case 0xFDFE:
+      i = Keyboard[1];
+      break;
+    case 0xFBFE:
+      i = Keyboard[2];
+      break;
+    case 0xF7FE:
+      i = Keyboard[3];
+      break;
+    case 0xEFFE:
+      i = Keyboard[4];
+      break;
+    case 0xDFFE:
+      i = Keyboard[5];
+      break;
+    case 0xBFFE:
+      i = Keyboard[6];
+      break;
+    case 0x7FFE:
+      i = Keyboard[7];
+      break;
+    }
+#elif SKYNET
+  switch(t & 0xff) {
     case IO_BOARD_ADDRESS:
     case IO_BOARD_ADDRESS+1:
     case IO_BOARD_ADDRESS+2:
@@ -443,7 +531,7 @@ LX.683 	interfaccia hard-disk 	eprom su scheda floppy LX.390: 0xF000 - 0xF7FF 	0
 
 */
  
-  switch(t) {
+  switch(t & 0xff) {
     case 0xee:			// interfaccia cassette
     case 0xef:
       break;
@@ -484,6 +572,12 @@ SWORD GetIntValue(SWORD t) {
 		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
 		}
 #else
+#ifdef ZX80
+	t &= 0x7fff;
+#endif
+#ifdef ZX81
+	t &= 0x7fff;
+#endif
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
 		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
 		}
@@ -534,6 +628,12 @@ BYTE GetPipe(SWORD t) {
 		Pipe2.b.h=rom_seg[t];
 		}
 #else
+#ifdef ZX80
+	t &= 0x7fff;
+#endif
+#ifdef ZX81
+	t &= 0x7fff;
+#endif
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
 	  Pipe1=rom_seg[t++];
 		Pipe2.b.l=rom_seg[t++];
@@ -697,15 +797,37 @@ void PutIntValue(SWORD t,SWORD t1) {
 #endif
 	}
 
-void OutValue(BYTE t,BYTE t1) {   // OCCHIO pare che siano 16bit anche I/O!
+void OutValue(SWORD t,BYTE t1) {   // 
 	register SWORD i;
 
 // printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
 
 #ifdef ZX80
-#elif ZX81
-#elif SKYNET
+/*  Output to Port FFh (or ANY other port)
+Writing any data to any port terminates the Vertical Retrace period, and
+restarts the LINECNTR counter. The retrace signal is also output to the
+cassette (ie. the Cassette Output becomes High)*/
   switch(t) {
+    lineCntr=0;
+    }
+#elif ZX81
+/*Port FDh Write (ZX81 only)
+Writing any data to this port disables the NMI generator.
+Port FEh Write (ZX81 only)
+Writing any data to this port enables the NMI generator.
+NMIs (Non maskable interrupts) are used during SLOW mode vertical blanking
+periods to count the number of drawn blank scanlines.
+   */
+  switch(t) {
+    case 0xfd:
+      NMIGenerator=0;
+      break;
+    case 0xfe:
+      NMIGenerator=1;
+      break;
+    }
+#elif SKYNET
+  switch(t & 0xff) {
     case IO_BOARD_ADDRESS:
     case IO_BOARD_ADDRESS+1:
     case IO_BOARD_ADDRESS+2:
@@ -832,7 +954,7 @@ void OutValue(BYTE t,BYTE t1) {   // OCCHIO pare che siano 16bit anche I/O!
       break;
 		}
 #elif NEZ80
-  switch(t) {
+  switch(t & 0xff) {
     case 0xee:			// interfaccia cassette
     case 0xef:
       break;
@@ -970,7 +1092,7 @@ int Emulate(int mode) {
 	do {
 
 		c++;
-		if(!(c & 16383)) {
+		if(!(c & 0x3ffff)) {
       ClrWdt();
 // yield()
 #ifndef USING_SIMULATOR      
@@ -980,8 +1102,16 @@ int Emulate(int mode) {
 #ifdef GALAKSIJA
 			UpdateScreen(0,128);    // fare passate più piccole!
 #endif
+#ifdef ZX80
+			UpdateScreen(0,192,_i);    // fare passate più piccole!
+      // lineCntr usare?
 #endif
-      LED1^=1;    // 42mS~ con SKYNET 7/6/20; 10~mS con Z80NE 10/7/21; 35mS GALAKSIJA 16/10/22
+#ifdef ZX81
+			UpdateScreen(0,192,_i);    // fare passate più piccole!
+#endif
+#endif
+      LED1^=1;    // 42mS~ con SKYNET 7/6/20; 10~mS con Z80NE 10/7/21; 35mS GALAKSIJA 16/10/22; 30mS ZX80 27/10/22
+      // QUADRUPLICO/ecc! 27/10/22
       
 #ifdef SKYNET    
       WDCnt--;
@@ -1019,6 +1149,21 @@ int Emulate(int mode) {
 // forse... verificare      DoNMI=1;
       }
 #endif
+#ifdef ZX80
+    { static oldR=0;
+      if(!(_r & 0x40) && (oldR & 0x40)) {
+        DoIRQ=1;
+        }
+      oldR=_r;
+      }
+#endif
+#ifdef ZX81
+    if(TIMIRQ) {
+      TIMIRQ=0;
+      if(NMIGenerator)
+        DoNMI=1;      // verificare... horiz. retrace dice...
+      }
+#endif
 #ifdef GALAKSIJA
     if(TIMIRQ) {
       DoIRQ=1;
@@ -1053,6 +1198,7 @@ int Emulate(int mode) {
 			IRQ_Enable1=0;IRQ_Enable2=0;
      	IRQ_Mode=0;
 			DoReset=0;DoHalt=0;//DoWait=0;
+      keysFeedPtr=255; //meglio ;)
       continue;
 			}
 		if(DoNMI) {
@@ -1065,7 +1211,7 @@ int Emulate(int mode) {
 		if(DoIRQ) {
       
       // LED2^=1;    // 
-      DoHalt=0;     // credo
+      DoHalt=0;     // 
       
 			if(IRQ_Enable1) {
 				IRQ_Enable1=0;    // ma non sono troppo sicuro... boh?
@@ -1090,10 +1236,16 @@ int Emulate(int mode) {
 		// buttare fuori il valore di _r per il refresh... :)
     _r++;
   
-		if(DoHalt)
+		if(DoHalt) {
+      //mettere ritardino per analogia con le istruzioni?
+//      __delay_ns(500); non va più nulla... boh...
 			continue;		// esegue cmq IRQ e refresh
-		if(DoWait)
+      }
+		if(DoWait) {
+      //mettere ritardino per analogia con le istruzioni?
+//      __delay_ns(100);
 			continue;		// esegue cmq IRQ?? penso di no... sistemare
+      }
 
 //printf("Pipe1: %02x, Pipe2w: %04x, Pipe2b1: %02x,%02x\n",Pipe1,Pipe2.word,Pipe2.bytes.byte1,Pipe2.bytes.byte2);
     
@@ -1135,6 +1287,12 @@ int Emulate(int mode) {
 #ifdef NEZ80
         DoReset=1;
 #endif
+#ifdef ZX80
+        DoReset=1;
+#endif
+#ifdef ZX81
+        DoReset=1;
+#endif
 #ifdef GALAKSIJA
         DoReset=1;
   
@@ -1143,12 +1301,13 @@ int Emulate(int mode) {
 #endif
         }
       if(!SW1) {        // test tastiera
-#if defined(NEZ80) || defined(GALAKSIJA)
-        keysFeedPtr=255;
+#if defined(NEZ80) || defined(ZX80) || defined(ZX81)|| defined(GALAKSIJA)
+        if(keysFeedPtr==255)      // debounce...
+          keysFeedPtr=254;
 #endif
         }
 
-      LED2^=1;    // ~700nS 7/6/20, ~600 con 32bit 10/7/21 MA NON FUNZIONA/visualizza!! verificare
+      LED2^=1;    // ~700nS 7/6/20, ~600 con 32bit 10/7/21 MA NON FUNZIONA/visualizza!! verificare; 5-700nS 27/10/22
 
     
 /*      if(_pc == 0x069d ab5 43c Cd3) {
@@ -1523,17 +1682,15 @@ aggSomma:
         _a=res3.b.l;
         _f.AddSub=0;
         _f.HalfCarry = ((res1.b.l & 0xf) + (res2.b.l & 0xf)) >= 0x10 ? 1 : 0;   // 
-        
-aggFlagBC:    // http://www.z80.info/z80sflag.htm
-				_f.Carry=!!res3.b.h;
-        
+
 aggFlagB:
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x40) != !!(((res1.b.l & 0x80) + (res2.b.l & 0x80)) & 0x80);
+        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
   //(M^result)&(N^result)&0x80 is nonzero. That is, if the sign of both inputs is different from the sign of the result. (Anding with 0x80 extracts just the sign bit from the result.) 
   //Another C++ formula is !((M^N) & 0x80) && ((M^result) & 0x80)
 //        _f.PV = !!((res1.b.l ^ res3.b.l) & (res2.b.l ^ res3.b.l) & 0x80);
 //        _f.PV = !!(!((res1.b.l ^ res2.b.l) & 0x80) && ((res1.b.l ^ res3.b.l) & 0x80));
-        _f.PV = ((res1.b.l ^ res3.b.l) & (res2.b.l ^ res3.b.l) & 0x80) ? 1 : 0;
+//**        _f.PV = ((res1.b.l ^ res3.b.l) & (res2.b.l ^ res3.b.l) & 0x80) ? 1 : 0;
   // Calculate the overflow by sign comparison.
 /*  carryIns = ((a ^ b) ^ 0x80) & 0x80;
   if (carryIns) // if addend signs are the same
@@ -1541,12 +1698,26 @@ aggFlagB:
     // overflow if the sum sign differs from the sign of either of addends
     carryIns = ((*acc ^ a) & 0x80) != 0;
   }*/
-  
-aggFlagBZ:	//usata da rotate, rld ecc
+	// per overflow e halfcarry https://stackoverflow.com/questions/8034566/overflow-and-carry-flags-on-z80
+/*The overflow checks the most significant bit of the 8 bit result. This is the sign bit. If we add two negative numbers (MSBs=1) then the result should be negative (MSB=1), whereas if we add two positive numbers (MSBs=0) then the result should be positive (MSBs=0), so the MSB of the result must be consistent with the MSBs of the summands if the operation was successful, otherwise the overflow bit is set.*/        
+/*        if(!_f.Sign) {
+          _f.PV=(res1.b.l & 0x80 || res2.b.l & 0x80) ? 1 : 0;
+          }
+        else {
+          _f.PV=(res1.b.l & 0x80 && res2.b.l & 0x80) ? 1 : 0;
+          }*/
+/*        if(res1.b.l & 0x80 && res2.b.l & 0x80)
+          _f.PV=res3.b.l & 0x80 ? 0 : 1;
+        else if(!(res1.b.l & 0x80) && !(res2.b.l & 0x80))
+          _f.PV=res3.b.l & 0x80 ? 1 : 0;
+        else
+          _f.PV=0;*/
+        
+aggFlagBC:    // http://www.z80.info/z80sflag.htm
+				_f.Carry=!!res3.b.h;
+        
         _f.Zero=res3.b.l ? 0 : 1;
         _f.Sign=res3.b.l & 0x80 ? 1 : 0;
-        
-	// per overflow e halfcarry https://stackoverflow.com/questions/8034566/overflow-and-carry-flags-on-z80
 				break;
 
 			case 0x86:    // ADD A,(HL)
@@ -1570,7 +1741,15 @@ aggSommaC:
         _a=res3.b.l;
         _f.AddSub=0;
         _f.HalfCarry = ((res1.b.l & 0xf) + (res2.b.l & 0xf)) >= 0x10 ? 1 : 0;   // 
-        goto aggFlagBC;
+//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore
+//        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
+/*        if(res1.b.l & 0x80 && res2.b.l & 0x80)
+          _f.PV=res3.b.l & 0x80 ? 0 : 1;
+        else if(!(res1.b.l & 0x80) && !(res2.b.l & 0x80))
+          _f.PV=res3.b.l & 0x80 ? 1 : 0;
+        else
+          _f.PV=0;*/
+        goto aggFlagB;
 				break;
 
 			case 0x8e:    // ADC A,(HL)
@@ -1594,7 +1773,17 @@ aggSottr:
         _a=res3.b.l;
         _f.AddSub=1;
         _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0 ? 1 : 0;   // 
-        goto aggFlagBC;
+//        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
+//        _f.PV = ((res1.b.l ^ res3.b.l) & (res2.b.l ^ res3.b.l) & 0x80) ? 1 : 0;
+/*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
+          if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
+            _f.PV=1;
+          else
+            _f.PV=0;
+          }
+        else
+          _f.PV=0;*/
+        goto aggFlagB;
 				break;
 
 			case 0x96:    // SUB A,(HL)
@@ -1618,7 +1807,17 @@ aggSottrC:
         _a=res3.b.l;
         _f.AddSub=1;
         _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0  ? 1 : 0;   // 
-        goto aggFlagBC;
+//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore
+//        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
+/*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
+          if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
+            _f.PV=1;
+          else
+            _f.PV=0;
+          }
+        else
+          _f.PV=0;*/
+        goto aggFlagB;
 				break;
 
 			case 0x9e:    // SBC A,(HL)
@@ -1639,7 +1838,9 @@ aggSottrC:
 aggAnd:
         res3.b.l=_a;
 aggAnd2:
-        _f.Carry=_f.AddSub=0;
+        _f.Carry=0;
+aggAnd3:      // usato da IN 
+        _f.AddSub=0;
         _f.Zero=_a ? 0 : 1;
         _f.Sign=_a & 0x80 ? 1 : 0;
         // halfcarry è 1 fisso se AND e 0 se OR/XOR
@@ -1995,7 +2196,7 @@ aggRotate2:
             goto aggRotate2;
 						break;
 
-					case 0x40:   // BIT
+					case 0x40:   // BIT 
 					case 0x41:
 					case 0x42:
 					case 0x43:
@@ -2070,7 +2271,7 @@ aggBit:
 						goto aggBit;
 						break;
 
-					case 0x80:   // RES
+					case 0x80:   // RES 
 					case 0x81:
 					case 0x89:
 					case 0x91:
@@ -2254,7 +2455,7 @@ Call:
 				break;
 
 			case 0xd3:    // OUT
-				OutValue(Pipe2.b.l,_a);
+				OutValue(MAKEWORD(Pipe2.b.l,_a),_a);
 				_pc++;
 				break;
 
@@ -2296,7 +2497,7 @@ Call:
 
 			case 0xdb:    // IN a,  NON tocca flag
 				_pc++;
-				_a=InValue(Pipe2.b.l);
+				_a=InValue(MAKEWORD(Pipe2.b.l,_a));
 				break;
 
 			case 0xdc:    // CALL c
@@ -2774,8 +2975,10 @@ Call:
 //#define WORKING_REG regs1.b[((Pipe1 & 0x38) >> 3) & 3]
 					case 0x09:   // ADD IX,BC
 					case 0x19:   // ADD IX,DE
-            res1.x=_ix;
             res2.x=WORKING_REG16;
+            
+aggSommaIX:
+            res1.x=_ix;
     			  res3.d=(DWORD)res1.x+(DWORD)res2.x;
     			  _ix = res3.x;
             _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
@@ -2809,12 +3012,8 @@ Call:
 						break;
 #endif
 					case 0x29:    // ADD IX,IX
-            res1.x=res2.x=_ix;
-    			  res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _ix = res3.x;
-            _f.AddSub=0;
-            _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
-            goto aggFlagWC;
+            res2.x=_ix;
+            goto aggSommaIX;
 						break;
 					case 0x2a:    // LD IX,(nn)
 						_ix = GetIntValue(Pipe2.x);
@@ -2858,13 +3057,8 @@ Call:
 						_pc+=2;
 						break;
 					case 0x39:    // ADD IX,SP
-            res1.x=_ix;
             res2.x=_sp;
-    			  res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _ix = res3.x;
-            _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
-            _f.AddSub=0;
-            goto aggFlagWC;
+            goto aggSommaIX;
 						break;
 #ifdef Z80_EXTENDED
 					case 0x44:    // LD r,IXh
@@ -2975,7 +3169,7 @@ Call:
             goto aggSottr;
 						break;
 #endif
-					case 0x96:    // SUB (IX+n)
+					case 0x96:    // SUB A,(IX+n)
 						res2.b.l=GetValue(IX_OFFSET);
 						_pc++;
             goto aggSottr;
@@ -3218,15 +3412,15 @@ Call:
 					case 0x60:
 					case 0x68:
 					case 0x78:
-						WORKING_REG=InValue(_c);    // DICE BC !! v. outvalue
+						WORKING_REG=InValue(_bc);    // 
             res3.b.l=WORKING_REG;
             //_f.HalfCarry= ???
-            goto aggAnd2;
+            goto aggAnd3;
 						break;
 #ifdef Z80_EXTENDED
 					case 0x70:    // IN (C)
-            res3.b.l=InValue(_c);
-            goto aggFlagB;// verificare flag qua!
+            res3.b.l=InValue(_bc);    // verificare...
+            goto aggAnd3;// verificare flag qua!
 						break;
 #endif
 
@@ -3237,11 +3431,11 @@ Call:
 					case 0x61:
 					case 0x69:
 					case 0x79:
-						OutValue(_c,WORKING_REG);   // DICE BC !! v. outvalue
+						OutValue(_bc,WORKING_REG);   // 
 						break;
 #ifdef Z80_EXTENDED
 					case 0x71:    // OUT (C),0
-						OutValue(_c,0);
+						OutValue(_bc,0);      // verificare...
 						break;
 #endif
 
@@ -3252,17 +3446,28 @@ Call:
             res2.x=WORKING_REG16;
             res3.d=(DWORD)res1.x-(DWORD)res2.x-_f.Carry;
     			  _hl = res3.x;
+            
+aggSottr16:
             _f.HalfCarry = ((res1.x & 0xfff) - (res2.x & 0xfff)) & 0xf000 ? 1 : 0;   // 
             _f.AddSub=1;
+//        _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x80) != !!(((res1.d & 0x8000) + (res2.d & 0x8000)) & 0x10000);
+/*            if((res1.b.h & 0x80) != (res2.b.h & 0x80)) {
+              if(((res1.b.h & 0x80) && !(res3.b.h & 0x80)) || (!(res1.b.h & 0x80) && (res3.b.h & 0x80)))
+                _f.PV=1;
+              else
+                _f.PV=0;
+              }
+            else
+              _f.PV=0;*/
             
 aggFlagW:
-    //        _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x40) != !!(((res1.b.h & 0x80) + (res2.b.h & 0x80)) & 0x80);
+//            _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x40) != !!(((res1.b.h & 0x80) + (res2.b.h & 0x80)) & 0x80);
     //        _f.PV = !!((res1.b.h ^ res3.b.h) & (res2.b.h ^ res3.b.h) & 0x80);
 //            _f.PV = !!(!((res1.b.h ^ res2.b.h) & 0x80) && ((res1.b.h ^ res3.b.h) & 0x80));
-            _f.PV = ((res1.b.h ^ res3.b.h) & (res2.b.h ^ res3.b.h) & 0x80) ? 1 : 0;
+//**            _f.PV = ((res1.b.h ^ res3.b.h) & (res2.b.h ^ res3.b.h) & 0x80) ? 1 : 0;
     //#warning flag per word o byte?? boh?!
+            _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x80) != !!(((res1.d & 0x8000) + (res2.d & 0x8000)) & 0x10000);
 
-//aggFlagWZ:2
             _f.Zero=res3.x ? 0 : 1;
             _f.Sign=res3.b.h & 0x80 ? 1 : 0;
 
@@ -3277,7 +3482,16 @@ aggFlagWC:
             res2.x=WORKING_REG16;
             res3.d=(DWORD)res1.x+(DWORD)res2.x+_f.Carry;
             _hl = res3.x;
+            
+aggSomma16:            
             _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
+//        _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x80) != !!(((res1.d & 0x8000) + (res2.d & 0x8000)) & 0x10000);
+/*            if(res1.b.h & 0x80 && res2.b.h & 0x80)
+              _f.PV=res3.b.h & 0x80 ? 0 : 1;
+            else if(!(res1.b.h & 0x80) && !(res2.b.h & 0x80))
+              _f.PV=res3.b.h & 0x80 ? 1 : 0;
+            else
+              _f.PV=0;*/
             _f.AddSub=0;
 						goto aggFlagW;
 						break;
@@ -3286,18 +3500,14 @@ aggFlagWC:
             res2.x=_sp;
             res3.d=(DWORD)res1.x-(DWORD)res2.x-_f.Carry;
     			  _hl = res3.x;
-            _f.HalfCarry = ((res1.x & 0xfff) - (res2.x & 0xfff)) & 0xf000 ? 1 : 0;   // 
-            _f.AddSub=1;
-						goto aggFlagW;
+						goto aggSottr16;
 						break;
 					case 0x7a:      // ADC HL,SP
             res1.x=_hl;
             res2.x=_sp;
             res3.d=(DWORD)res1.x+(DWORD)res2.x+_f.Carry;
             _hl = res3.x;
-            _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
-            _f.AddSub=0;
-						goto aggFlagW;
+						goto aggSomma16;
 						break;
 
 					case 0x43:    // LD (nn),BC ecc
@@ -3332,7 +3542,7 @@ aggFlagWC:
 //#warning            P = 1 if A = 80H before, else 0 E/MA altrove dice overflow...
 						_a = res3.b.l;
             _f.AddSub=1;
-		        _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) >= 0x10;   // verificare idem
+            _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0 ? 1 : 0;   // 
 		        _f.Zero=res3.b.l ? 0 : 1;
 				    _f.Sign=res3.b.l & 0x80 ? 1 : 0;
 						break;
@@ -3405,14 +3615,14 @@ aggFlagWC:
 						PutValue(_hl,(res3.b.l & 0xf) | ((_a & 0xf) << 4));
 						_a = (_a & 0xf0) | (res3.b.l & 0xf);
             res3.b.l=_a;
-            goto aggFlagBZ;
+            goto aggRotate2;
 						break;
 					case 0x6f:    // RLD
 						res3.b.l=GetValue(_hl);
 						PutValue(_hl,((res3.b.l & 0xf) << 4) | (_a & 0xf));
 						_a = (_a & 0xf0) | ((res3.b.l & 0xf0) >> 4);
             res3.b.l=_a;
-            goto aggFlagBZ;
+            goto aggRotate2;
 						break;
 
 #ifdef Z80_EXTENDED
@@ -3442,19 +3652,24 @@ aggLDI:
 						_bc--;
 						res1.b.l=_a;
 						res2.b.l=GetValue(_hl++);
+            
+aggCPI:
 						res1.b.h=res2.b.h=0;
 						res3.x=res1.x-res2.x;
             _f.AddSub=1;
-            goto aggFlagB;    // CARRY qua dice di no...
+            _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0 ? 1 : 0;   // 
+            _f.Zero=res3.b.l ? 0 : 1;
+            _f.Sign=res3.b.l & 0x80 ? 1 : 0;
+						_f.PV=!!_bc;
 						break;
 					case 0xa2:    // INI
-						PutValue(_hl++,InValue(_c));
+						PutValue(_hl++,InValue(_bc));
 						_b--;
 						_f.Zero=!_b;
-            _f.AddSub=0;
+            _f.AddSub=1;
 						break;
 					case 0xa3:    // OUTI
-						OutValue(_c,GetValue(_hl++));
+						OutValue(_bc,GetValue(_hl++));
 						_b--;
 						_f.Zero=!_b;
             _f.AddSub=0;
@@ -3470,26 +3685,23 @@ aggLDI:
 						break;
 					case 0xb1:    // CPIR
 						res1.b.l=_a;
-						res2.b.l=GetValue(_hl);
+						res2.b.l=GetValue(_hl++);
+            _bc--;
 						if(res1.b.l != res2.b.l) {
-              _bc--;
-              _hl++;
               if(_bc) 
                 _pc-=2;			// così ripeto e consento IRQ...
               }
-						res1.b.h=res2.b.h=0;
-						res3.x=res1.x-res2.x;
-            _f.AddSub=1;
-            goto aggFlagB;    // CARRY no dice...
+            goto aggCPI;    // 
 						break;
 					case 0xb2:    // INIR
-						PutValue(_hl++,InValue(_c));
+						PutValue(_hl++,InValue(_bc));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
+						_f.Zero=_f.AddSub=1;  // in teoria solo alla fine... ma ok
 						break;
 					case 0xb3:    // OTIR
-						OutValue(_c,GetValue(_hl++));
+						OutValue(_bc,GetValue(_hl++));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
@@ -3503,18 +3715,16 @@ aggLDI:
 						_bc--;
 						res1.b.l=_a;
 						res2.b.l=GetValue(_hl--);
-						res1.b.h=res2.b.h=0;
-						res3.x=res1.x-res2.x;
-            goto aggFlagB;    // CARRY no...
+            goto aggCPI;    // 
 						break;
 					case 0xaa:    // IND
-						PutValue(_hl--,InValue(_c));
+						PutValue(_hl--,InValue(_bc));
 						_b--;
 						_f.Zero=!_b;
             _f.AddSub=1;
 						break;
 					case 0xab:    // OUTD
-						OutValue(_c,GetValue(_hl--));
+						OutValue(_bc,GetValue(_hl--));
 						_b--;
 						_f.Zero=!_b;
             _f.AddSub=1;
@@ -3529,27 +3739,24 @@ aggLDI:
 						break;
 					case 0xb9:    // CPDR
 						res1.b.l=_a;
-						res2.b.l=GetValue(_hl);
+						res2.b.l=GetValue(_hl--);
+            _bc--;
 						if(res1.b.l != res2.b.l) {
-              _bc--;
-              _hl--;
               if(_bc) 
                 _pc-=2;			// così ripeto e consento IRQ...
               }
-						res1.b.h=res2.b.h=0;
-						res3.x=res1.x-res2.x;
-            goto aggFlagB;    // CARRY no dice...
+            goto aggCPI;    // 
 						break;
 					case 0xba:    // INDR
-						PutValue(_hl--,InValue(_c));
+						PutValue(_hl--,InValue(_bc));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
-						_f.Zero=!_b;  // in teoria solo alla fine... ma ok
+						_f.Zero=1;  // in teoria solo alla fine... ma ok
             _f.AddSub=1;
 						break;
 					case 0xbb:    // OTDR
-						OutValue(_c,GetValue(_hl--));
+						OutValue(_bc,GetValue(_hl--));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
@@ -4095,8 +4302,10 @@ aggLDI:
             
 					case 0x09:    // ADD IY,BC ecc
 					case 0x19:
-            res1.x=_iy;
             res2.x=WORKING_REG16;
+            
+aggSommaIY:            
+            res1.x=_iy;
             res3.d=(DWORD)res1.x+(DWORD)res2.x;
     			  _iy = res3.x;
             _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
@@ -4131,12 +4340,8 @@ aggLDI:
 						break;
 #endif
 					case 0x29:    // ADD IY,IY
-            res1.x=res2.x=_iy;
-            res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _iy = res3.x;
-            _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
-            _f.AddSub=0;
-            goto aggFlagWC;
+            res2.x=_iy;
+            goto aggSommaIY;
 						break;
 					case 0x2a:    // LD IY,(nn)
 						_iy = GetIntValue(Pipe2.x);
@@ -4180,13 +4385,8 @@ aggLDI:
 						_pc+=2;
 						break;
 					case 0x39:    // ADD IY,SP
-            res1.x=_iy;
             res2.x=_sp;
-            res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _iy = res3.x;
-            _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
-            _f.AddSub=0;
-            goto aggFlagWC;
+            goto aggSommaIY;
 						break;
 #ifdef Z80_EXTENDED
 					case 0x44:    // LD r,IYh
@@ -4422,6 +4622,15 @@ compare:
 				res1.b.l=_a;
 				res1.b.h=res2.b.h=0;
 				res3.x=res1.x-res2.x;
+        _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0 ? 1 : 0;   // 
+        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
+          if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
+            _f.PV=1;
+          else
+            _f.PV=0;
+          }
+        else
+          _f.PV=0;
         _f.AddSub=1;
   			goto aggFlagBC;
 				break;
