@@ -37,12 +37,13 @@
 #define VERNUML 6
 #define VERNUMH 1
 
-#define ZX80 1
+//#define ZX80 1
 //#define ZX81 1      // 
 //#define SKYNET 1
 //#define NEZ80 1
-//#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
+#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
                         // https://www.kernelcrash.com/blog/making-a-galaksija/2020/03/02/
+												// CANCRO a antonio caradonna MORTE alla puglia!!!
 
 
 typedef char BOOL;
