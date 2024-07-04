@@ -3,6 +3,7 @@
 #ifndef _Z80_PIC_INCLUDED
 #define _Z80_PIC_INCLUDED
 
+#include <stdint.h>
 //---------------------------------------------------------------------------
 
 
@@ -34,16 +35,65 @@
 
 #define US_TO_CT_TICKS  (CPU_CT_HZ/1000000UL)    // uS to CoreTimer Ticks
     
-#define VERNUML 6
+#define VERNUML 8
 #define VERNUMH 1
 
 //#define ZX80 1
 //#define ZX81 1      // 
 //#define SKYNET 1
 //#define NEZ80 1
-#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
+//#define GALAKSIJA 1     // emulatore online https://galaksija.net/?i=1
                         // https://www.kernelcrash.com/blog/making-a-galaksija/2020/03/02/
-												// CANCRO a antonio caradonna MORTE alla puglia!!!
+											// CANCRO a antonio caradonna MORTE alla puglia!!!
+#define MSX 1
+// https://bluemsx.com/ emulatore
+#ifdef MSX
+#define TMS99xx_BASE 0x98
+#define VIDEORAM_SIZE 16384
+#define TMS_R0_MODE_GRAPHICS_I    0x00
+#define TMS_R0_MODE_GRAPHICS_II   0x02
+#define TMS_R0_MODE_MULTICOLOR    0x00
+#define TMS_R0_MODE_TEXT          0x00
+#define TMS_R0_EXT_VDP_ENABLE     0x01
+#define TMS_R0_EXT_VDP_DISABLE    0x00
+
+#define TMS_R1_RAM_16K            0x80
+#define TMS_R1_RAM_4K             0x00
+#define TMS_R1_DISP_BLANK         0x00
+#define TMS_R1_DISP_ACTIVE        0x40
+#define TMS_R1_INT_ENABLE         0x20
+#define TMS_R1_INT_DISABLE        0x00
+#define TMS_R1_MODE_GRAPHICS_I    0x00
+#define TMS_R1_MODE_GRAPHICS_II   0x00
+#define TMS_R1_MODE_MULTICOLOR    0x08
+#define TMS_R1_MODE_TEXT          0x10
+#define TMS_R1_SPRITE_8           0x00
+#define TMS_R1_SPRITE_16          0x02
+#define TMS_R1_SPRITE_MAG1        0x00
+#define TMS_R1_SPRITE_MAG2        0x01
+#define LAST_SPRITE_YPOS        0xD0
+
+#define TMS_DEFAULT_VRAM_NAME_ADDRESS          0x3800
+#define TMS_DEFAULT_VRAM_COLOR_ADDRESS         0x0000
+#define TMS_DEFAULT_VRAM_PATT_ADDRESS          0x2000
+#define TMS_DEFAULT_VRAM_SPRITE_ATTR_ADDRESS   0x3B00
+#define TMS_DEFAULT_VRAM_SPRITE_PATT_ADDRESS   0x1800
+extern uint8_t VideoRAM[VIDEORAM_SIZE];
+struct __attribute__((__packed__)) SPRITE_ATTR {
+  uint8_t ypos,xpos;    // v. sotto, a volte usato come signed
+  uint8_t name;
+  union __attribute__((__packed__)) {
+    struct __attribute__((__packed__)) {
+      unsigned int color:4;
+      unsigned int unused:3;
+      unsigned int eclock:1;
+      };
+    uint8_t tag;
+    };
+  };
+#endif
+//#define MSX2 1
+
 
 
 typedef char BOOL;
@@ -81,6 +131,8 @@ void myINTEnableSystemMultiVectoredInt(void);
 void ShortDelay(DWORD DelayCount);
 #define __delay_ms(n) ShortDelay(n*100000UL)
 #define __delay_ns(n) ShortDelay(n*100UL)
+void DelayUs(unsigned int);
+void DelayMs(unsigned int);
 
 #define ClrWdt() { WDTCONbits.WDTCLRKEY=0x5743; }
 
@@ -123,8 +175,10 @@ int decodeKBD(int, long, BOOL);
 BYTE GetValue(SWORD);
 SWORD GetIntValue(SWORD);
 void PutValue(SWORD, BYTE);
+void PutIntValue(SWORD, SWORD);
 BYTE InValue(SWORD);
 void OutValue(SWORD, BYTE);
+BYTE GetPipe(SWORD);
 int Emulate(int);
 
 #ifdef SKYNET
@@ -136,7 +190,17 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i);
 #ifdef GALAKSIJA
 int UpdateScreen(SWORD rowIni, SWORD rowFin);
 #endif
+#ifdef MSX
+int UpdateScreen(SWORD rowIni, SWORD rowFin);
+#endif
 
+void LCDXY(BYTE, BYTE);
+void LCDCls();
+
+void drawBG();
+
+unsigned int ReadUART1(void);
+void WriteUART1(unsigned int);
 
 #define LED1 LATEbits.LATE2
 #define LED2 LATEbits.LATE3

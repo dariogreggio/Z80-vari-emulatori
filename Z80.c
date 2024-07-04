@@ -2,6 +2,8 @@
 //https://gist.github.com/seanjensengrey/f971c20d05d4d0efc0781f2f3c0353da
 //#warning CFR Z80HW per modifiche a gestione flag... 2022
 
+//v. metodo usato su 68000 senza byte alto... provare
+
 #include <stdio.h>
 #include <ctype.h>
 #include <stdlib.h>
@@ -14,11 +16,9 @@
 //#include <io.h>
 #include <xc.h>
 
-#include "Adafruit_ST77xx.h"
-#include "Adafruit_ST7735.h"
-#include "adafruit_gfx.h"
 
 #include "Z80_PIC.h"
+#include "Adafruit_ST77xx.h"      // per LOBYTE ecc...
 
 
 #pragma check_stack(off)
@@ -27,140 +27,11 @@
 
 #undef Z80_EXTENDED
 
-BYTE fExit=0;
-BYTE debug=0;
-#ifdef ZX80
-#define RAM_START 0x4000
-#define RAM_SIZE 1024
-#define ROM_SIZE 4096				// 4K, ZX80; 8K, ZX81
-#elif ZX81
-#define RAM_START 0x4000
-#define RAM_SIZE 1024
-#define ROM_SIZE 8192				// 4K, ZX80; 8K, ZX81
-#elif SKYNET
-#define RAM_START 0x8000
-#define RAM_SIZE 2048
-#define ROM_SIZE 0x4000
-#define ROM_SIZE2 0x4000
-#elif NEZ80
-#define RAM_START 0x0000
-#define RAM_SIZE 2048
-#define ROM_START 0x8000
-#define ROM_SIZE 0x400
-//#define ROM_SIZE2 0x4000
-#elif GALAKSIJA
-#define RAM_START 0x2800
-#define RAM_SIZE (2048*3)   // max 3x6116 = 0x1800
-#define ROM_START 0x0000
-#define ROM_SIZE 0x1000
-#define ROM_SIZE2 0x1000
-#endif
-BYTE ram_seg[RAM_SIZE];
-BYTE rom_seg[ROM_SIZE];			
-#ifdef ROM_SIZE2 
-BYTE rom_seg2[ROM_SIZE2];
-#endif
-#ifdef SKYNET
-BYTE i8255RegR[4],i8255RegW[4];
-BYTE LCDram[256 /*4*40*/],LCDCGDARAM=0,LCDCGram[64],LCDCGptr=0,LCDfunction,LCDdisplay,
-	LCDentry=2 /* I/D */,LCDcursor;			// emulo LCD text come Z80net
-signed char LCDptr=0;
-BYTE IOExtPortI[4],IOExtPortO[4];
-BYTE IOPortI,IOPortO,ClIRQPort,ClWDPort;
-/*Led1Bit        equ 7
-Led2Bit        equ 6
-SpeakerBit     equ 5
-WDEnBit        equ 3
-ComOutBit2     equ 2
-NMIEnBit       equ 1
-ComOutBit      equ 0
-Puls1Bit       equ 7
-ComInBit2      equ 5
-DipSwitchBit   equ 1
-ComInBit       equ 0*/
-BYTE i146818RegR[2],i146818RegW[2],i146818RAM[64];
-BYTE i8042RegR[2],i8042RegW[2];
-BYTE KBDataI,KBDataO,KBControl,/*KBStatus,*/ KBRAM[32];   // https://wiki.osdev.org/%228042%22_PS/2_Controller
-#define KBStatus KBRAM[0]   // pare...
-BYTE Keyboard[1]={0};
-volatile BYTE TIMIRQ,VIDIRQ,KBDIRQ,SERIRQ,RTCIRQ;
-#endif
-#ifdef NEZ80
-BYTE DisplayRAM[8];
-BYTE Keyboard[1]={0};
-volatile BYTE TIMIRQ;
-BYTE sense50Hz;
-volatile BYTE MUXcnt;
-#endif
-#ifdef ZX80
-volatile BYTE TIMIRQ,lineCntr;
-//http://searle.x10host.com/zx80/zx80.html
-BYTE Keyboard[8]={255,255,255,255,255,255,255,255};
-/* There are forty ($28) system variables followed by Program area
-; These are located at the start of RAM.
-;
-; +---------+---------+-----------+---+-----------+-----------+-------+-------+
-; |         |         |           |   |           |           |       |       |
-; | SYSVARS | Program | Variables |80h| WKG Space | Disp File | Spare | Stack |
-; |         |         |           |   |           |           |       |       |
-; +---------+---------+-----------+---+-----------+-----------+-------+-------+
-;           ^         ^               ^           ^     ^     ^       ^
-;         $4024      VARS            E_LINE    D_FILE       DF_END   SP
-;                                                     DF_EA
-*/
-#endif
-#ifdef ZX81
-volatile BYTE TIMIRQ,NMIGenerator=0;
-BYTE Keyboard[8]={255,255,255,255,255,255,255,255};
-#endif
-#ifdef GALAKSIJA
-volatile BYTE TIMIRQ;
-BYTE Keyboard[8]={255,255,255,255,255,255,255,255};
-BYTE Latch=0;
-/* About the latch
-; ***************
-
-; A 6-bit register (called "latch" in the original documentation) can be 
-; accessed on all memory addresses that can be written in binary as
-
-; 0 0 1 0  0 x x x  x x 1 1  1 x x x  
-; (for example 207fh as used in VIDEO_INT)
-
-; The content is write-only. A read from these addresses will return an 
-; unspecified value.
-
-; Individual bits have the following meaning:
-;
-;  7	Clamp RAM A7 to one (1 disabled, 0 enabled)
-;  ---
-;  6    Cassette port output bit 0
-;  ---
-;  5    Character generator row bit 3
-;  ---
-;  4	Character generator row bit 2
-;  ---
-;  3	Character generator row bit 1
-;  ---
-;  2	Character generator row bit 0
-;	Cassette port output bit 1
-;  ---
-;  1	Unused
-;  ---
-;  0	Unused
-
-;  Character generator row bits hold the current row of the character being
-;  drawn to the screen.
-
-;  Cassette port is high if both output bits are 1, low if both are 0 and
-;  zero if one bit is 1 and one is 0.
-
-;  Bit 7 forces RAM address line A7 to one. This is required because the top
-;  bit of the R register never changes (only bottom 7 bits are incremented
-;  during each opcode).
-*/
-#endif
+extern BYTE fExit;
+extern BYTE debug;
 
 extern volatile BYTE keysFeedPtr;
+extern volatile BYTE TIMIRQ,VIDIRQ;
 
 BYTE DoReset=0,DoIRQ=0,DoNMI=0,DoHalt=0,DoWait=0;
 #define MAX_WATCHDOG 100      // x30mS v. sotto
@@ -176,806 +47,6 @@ union /*__attribute__((__packed__))*/ {
 //		BYTE u;		 bah no, sposto la pipe quando ci sono le istruzioni lunghe 4...
 		} b;
 	} Pipe2;
-
-
-
-BYTE GetValue(SWORD t) {
-	register BYTE i;
-
-#ifdef NEZ80
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-		i=ram_seg[t];
-		}
-	else if(t >= ROM_START && t < (ROM_START+ROM_SIZE)) {
-		t-=ROM_START;
-		i=rom_seg[t];
-		}
-#else
-#ifdef ZX80
-	t &= 0x7fff;
-#endif
-#ifdef ZX81
-	t &= 0x7fff;
-#endif
-	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
-		i=rom_seg[t];
-		}
-#ifdef SKYNET
-	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
-		i=rom_seg2[t-0x4000];
-		}
-#endif
-	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		i=ram_seg[t-RAM_START];
-		}
-#ifdef SKYNET
-  else if(t==0xe000) {        //
-//    IOPortI = 0b00011100;      // dip-switch=0001; v. main
-//    IOPortI |= 0b00000001;      // ComIn
-    if(PORTDbits.RD2)
-      IOPortI |= 0x80;      // pulsante
-    else
-      IOPortI &= ~0x80;
-    i=IOPortI;
-    }
-  else if(t>=0xe002 && t<=0xe003) {        //   CMOS RAM/RTC (Real Time Clock  MC146818)
-    t &= 0x1;
-    switch(t) {
-      case 0:
-        i=i146818RegR[0];
-        break;
-      case 1:     // il bit 7 attiva/disattiva NMI boh??
-        switch(i146818RegW[0] & 0x3f) {
-          case 0:
-            i146818RegR[1]=currentTime.sec;
-            break;
-            // in mezzo c'è Alarm...
-          case 2:
-            i146818RegR[1]=currentTime.min;
-            break;
-          case 4:
-            i146818RegR[1]=currentTime.hour;
-            break;
-            // 6 è day of week...
-          case 7:
-            i146818RegR[1]=currentDate.mday;
-            break;
-          case 8:
-            i146818RegR[1]=currentDate.mon;
-            break;
-          case 9:
-            i146818RegR[1]=currentDate.year;
-            break;
-          case 12:
-						i146818RegR[1]=i146818RAM[12] = 0;   // flag IRQ
-            break;
-          default:      // qua ci sono i 4 registri e poi la RAM
-            i146818RegR[1]=i146818RAM[i146818RegW[0] & 0x3f];
-            break;
-          }
-        i=i146818RegR[1];
-        break;
-      }
-    }
-  else if(t==0xe004) {
-    ClIRQPort;
-    }
-  else if(t==0xe005) {
-    ClWDPort;
-    }
-#endif
-#ifdef GALAKSIJA
-  else if((t >= 0x2000) && (t <= 0x27ff)) {
-//    printf("Leggo a %04x: %02x\n",t,CIA1Reg[t & 0xf]);
-    t &= 0x3f;
-    if(t<=0x37)
-      i = Keyboard[t >> 3] & (1 << (t & 0x7)) ? 1 : 0;   // i 3 bit bassi pilotano il mux row/lettura, i 3 alti il mux col/scrittura, out è su D0
-    // in effetti sono 7, ma anche se il sw sforasse si becca cmq latch :)
-    else
-      i = Latch;   // (in effetti non è leggibile...)
-    }
-#endif
-#endif
-	return i;
-	}
-
-#ifdef SKYNET
-#define LCD_BOARD_ADDRESS 0x80
-// emulo display LCD testo (4x20, 4x20 o altro) come su scheda Z80:
-//  all'indirizzo+0 c'è la porta dati (in/out), a +2 i fili C/D, RW e E (E2)
-#define IO_BOARD_ADDRESS 0x00
-#endif
-BYTE InValue(SWORD t) {    // OCCHIO pare che siano 16bit anche I/O!
-	register BYTE i,j;
-
-#ifdef ZX80
-//  https://electronics.stackexchange.com/questions/51460/how-does-the-zx80-keyboard-avoid-ghosting-and-masking
-/*Input from Port FEh (or any other port with A0 zero)
-Reading from this port initiates the Vertical Retrace period (and accordingly,
-Cassette Output becomes Low), and resets the LINECNTR register to zero,
-LINECNTR remains stopped/zero until user terminates retrace - In the ZX81, all
-of the above happens only if NMIs are disabled.
-Bit Expl.
-0-4 Keyboard column bits (0=Pressed)
-5 Not used (1)
-6 Display Refresh Rate (0=60Hz, 1=50Hz)
-7 Cassette input (0=Normal, 1=Pulse)*/
-  switch(t) {
-/*          A8   A9  A10  A11  A12  A13  A14  A15  Keyboard layout
-            |    |    |    |    |    |    |    |
-    K4 -    V    G    T    5    6    Y    H    B
-    K3 -    C    F    R    4    7    U    J    N
-    K2 -    X    D    E    3    8    I    K    M
-    K1 -    Z    S    W    2    9    O    L    .
-    K0 -  Shift  A    Q    1    0    P   NL  Space
-
-(I'm using K0-K5 to be the inputs to IC 10)
-Lines K0,K1,K2,K3,K4 are pulled to 5V by R13,R14,R15,R16,R17*/
-/*    Port____Line____Bit__0____1____2____3____4__
-FEFEh 0 (A8) SHIFT Z X C V
-FDFEh 1 (A9) A S D F G
-FBFEh 2 (A10) Q W E R T
-F7FEh 3 (A11) 1 2 3 4 5
-EFFEh 4 (A12) 0 9 8 7 6
-DFFEh 5 (A13) P O I U Y
-BFFEh 6 (A14) ENTER L K J H
-7FFEh 7 (A15) SPC . M N B*/
-    case 0xFEFE:
-      i = Keyboard[0];
-      break;
-    case 0xFDFE:
-      i = Keyboard[1];
-      break;
-    case 0xFBFE:
-      i = Keyboard[2];
-      break;
-    case 0xF7FE:
-      i = Keyboard[3];
-      break;
-    case 0xEFFE:
-      i = Keyboard[4];
-      break;
-    case 0xDFFE:
-      i = Keyboard[5];
-      break;
-    case 0xBFFE:
-      i = Keyboard[6];
-      break;
-    case 0x7FFE:
-      i = Keyboard[7];
-      break;
-    }
-#elif ZX81
-  switch(t) {
-    case 0xFEFE:
-      i = Keyboard[0];
-      break;
-    case 0xFDFE:
-      i = Keyboard[1];
-      break;
-    case 0xFBFE:
-      i = Keyboard[2];
-      break;
-    case 0xF7FE:
-      i = Keyboard[3];
-      break;
-    case 0xEFFE:
-      i = Keyboard[4];
-      break;
-    case 0xDFFE:
-      i = Keyboard[5];
-      break;
-    case 0xBFFE:
-      i = Keyboard[6];
-      break;
-    case 0x7FFE:
-      i = Keyboard[7];
-      break;
-    }
-#elif SKYNET
-  switch(t & 0xff) {
-    case IO_BOARD_ADDRESS:
-    case IO_BOARD_ADDRESS+1:
-    case IO_BOARD_ADDRESS+2:
-    case IO_BOARD_ADDRESS+3:
-      i=IOExtPortI[t-IO_BOARD_ADDRESS];
-      break;
-//    case 0x0e:      // board signature...
-//#warning TOGLIERE QUA!
-//      return 0x68;      // LCD
-//      break;
-
-    case LCD_BOARD_ADDRESS:
-      // per motivi che ora non ricordo, il BIOS indirizza 0..3 mentre la 2°EEprom (casanet) aveva indirizzi doppi o meglio bit 0..1 messi a 2-0
-      // potrei ricompilare casanet per andare "dritto" 0..3, per ora lascio così (unico problema è conflitto a +6 con la tastiera... amen! tanto scrive solo all'inizio)
-      // if(i8255RegR[2] & 0b01000000) fare...?
-      // else 			i=i8255RegW[0];
-      if(!(i8255RegR[1] & 1))			// se status...
-        i8255RegR[0]=0 | (LCDptr & 0x7f); //sempre ready!
-      else {
-        if(!LCDCGDARAM) {
-          i8255RegR[0]=LCDram[LCDptr]; //
-          if(LCDentry & 2) {
-            LCDptr++;
-            if(LCDptr >= 0x7f)			// parametrizzare! o forse no, fisso max 127
-              LCDptr=0;
-            }
-          else {
-            LCDptr--;
-            if(LCDptr < 0)			// parametrizzare!
-              LCDptr=0x7f;    // CONTROLLARE
-            }
-          }
-        else {
-          i8255RegR[0]=LCDCGram[LCDptr++]; //
-          LCDCGptr &= 0x3f;
-          }
-        }
-			i=i8255RegR[0];
-      break;
-    case LCD_BOARD_ADDRESS+2:
-			i=i8255RegR[1];
-      break;
-    case LCD_BOARD_ADDRESS+4:
-      // qua c'è la 3° porta del 8255
-      // il b6 mette a in o out la porta dati A (1=input)
-			i=i8255RegR[2];
-      break;
-    case LCD_BOARD_ADDRESS+5 /* sarebbe 6 ma ovviamente non si può! v. sopra*/:
-      // 8255 settings
-			i=i8255RegR[3];
-      break;
-      
-    case LCD_BOARD_ADDRESS+6:   // 
-      if(i8042RegW[1]==0xAA) {      // self test
-        i8042RegR[0]=0x55;
-        }
-      else if(i8042RegW[1]==0xAB) {      // diagnostics
-        i8042RegR[0]=0b00000000;
-        }
-      else if(i8042RegW[1]>=0x20 && i8042RegW[1]<0x40) {
-        i8042RegR[0]=KBRAM[i8042RegW[1] & 0x1f];
-        }
-      else if(i8042RegW[1]>=0x60 && i8042RegW[1]<0x80) {
-        //KBRAM[i8042RegW[1] & 0x1f]
-        }
-      else if(i8042RegW[1]==0xC0) {
-        i8042RegR[0]=KBStatus;
-        }
-      else if(i8042RegW[1]==0xD0) {
-        i8042RegR[0]=KBControl;
-        }
-      else if(i8042RegW[1]==0xD1) {
-        }
-      else if(i8042RegW[1]==0xD2) {
-        }
-      else if(i8042RegW[1]>=0xF0 && i8042RegW[1]<=0xFF) {
-        }
-      i=i8042RegR[0];
-      break;
-    case LCD_BOARD_ADDRESS+7:
-      i=i8042RegR[1];
-      i=0; // non-busy
-      break;
-    case LCD_BOARD_ADDRESS+0xe:
-      i=0x68; // LCD signature
-      break;
-		}
-#elif NEZ80
-
-/*
-LX.382 	scheda CPU 	ram: 0x0000 - 0x03FF eprom: 0x8000 - 0x83FF 	-
-
-LX.383 	interfaccia tastiera esadecimale 	- 	
-display (out): 	0xF0 - 0xF7
-tastiera (in): 	0xF0
-attiva la linea l'NMI dopo l'istruzione successiva.
-E' utilizzato per gestire il single-step (out): 	0xF8
-
-LX.385 	interfaccia cassette 	- 	0xEE - 0xEF
-
-LX.386 	espansione di memoria da 8 KBytes 	
-indirizzabile a piacimento a blocchi di 1K in base ai ponticelli ed alle ram inserite (oltre l'indirizzo 0x7FFF oppure se utilizzata insieme all'espansione da 32 KBytes occorre effettuare delle modifiche)
-	-
-
-LX.392 	espansione di memoria da 32 KBytes 	
-indirizzabile a piacimento a blocchi di 16K in base ai ponticelli ed alle ram inserite
-	-
-LX.389 	interfaccia stampante 	- 	indirizzabile mediante ponticelli sui seguenti indirizzi a scelta:
-0x02 - 0x03
-0x06 - 0x07
-0x0A - 0x0B
-0x0E - 0x0F
-0x12 - 0x13
-0x16 - 0x17
-0x1A - 0x1B
-0x1E - 0x1F
-
-LX.548 	basic da 16 KBytes su eprom 	eprom: 0x0000 - 0x3FFF 	-
-
-LX.388 	interfaccia video 	ram: 0xEC00 - 0xEDFF 	
-tastiera: 	0xEA
-ritraccia video: 	0xEB
-
-LX.529 	interfaccia video grafica e stampante 	- 	
-PIO 0 porta A - dati (ram 0): 	0x80
-PIO 0 porta A - controllo (ram 0): 	0x82
-PIO 0 porta B - dati (stampante): 	0x81
-PIO 0 porta B - controllo (stampante): 	0x83
-PIO 1 porta A - dati (ram 1): 	0x84
-PIO 1 porta A - controllo (ram 1): 	0x86
-PIO 1 porta B - dati (tastiera): 	0x85
-PIO 1 porta B - controllo (tastiera): 	0x87
-PIO 2 porta A - dati (ram 2): 	0x88
-PIO 2 porta A - controllo (ram 2): 	0x8A
-PIO 2 porta B - dati (busy stampante + 40/80 caratteri video): 	0x89
-PIO 2 porta B - controllo (busy stampante + 40/80 caratteri video): 	0x8B
-SY6545 registro di indirizzo e di stato: 	0x8C
-SY6545 registro dati: 	0x8D
-RAM 3 attributi dei caratteri: 	0x8E
-beeper: 	0x8F
-
-LX.390 	interfaccia floppy 	eprom: 0xF000 - 0xF3FF 	
-registro di comando (o di stato se ci si accede in lettura): 	0xD0
-registro di traccia: 	0xD1
-registro di settore: 	0xD2
-data register (scrive solo se il controller è libero): 	0xD3
-drive select e side one select: 	0xD6
-data register (scrive sempre): 	0xD7
-
-LX.394-395 	programmatore di eprom 	eprom da programmare: 0x9000 - 0x9FFF
-eprom con firmware: 0x8400 - 0x87FF 	abilitazione programmazione eprom: 0x7F
-
-LX.683 	interfaccia hard-disk 	eprom su scheda floppy LX.390: 0xF000 - 0xF7FF 	0xB8 - 0xB9 - 0xBA - 0xBB
-
-*/
- 
-  switch(t & 0xff) {
-    case 0xee:			// interfaccia cassette
-    case 0xef:
-      break;
-    case 0xf0:    
-      //finire
-//      j=0;
-//      Keyboard[0] = 0x15 | 0x80;
-//			i=(MUXcnt & 8) << 4;
-      if(MUXcnt & 8) {
-        i = Keyboard[0];
-      /*if(i & 128) {
-        Nop();
-        Nop();
-        }*/
-        }
-      else {
-        Keyboard[0] &= 0x7f;
-        i = Keyboard[0];
-        }
-//      i=sense50Hz;
-      break;
-		}
-#elif GALAKSIJA
-#endif
-	return i;
-	}
-
-SWORD GetIntValue(SWORD t) {
-	register SWORD i;
-
-#ifdef NEZ80
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-		i=MAKEWORD(ram_seg[t],ram_seg[t+1]);
-		}
-	else if(t >= ROM_START && t < (ROM_START+ROM_SIZE)) {
-		t-=ROM_START;
-		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
-		}
-#else
-#ifdef ZX80
-	t &= 0x7fff;
-#endif
-#ifdef ZX81
-	t &= 0x7fff;
-#endif
-	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
-		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
-		}
-#ifdef SKYNET
-	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
-		t-=0x4000;
-		i=MAKEWORD(rom_seg2[t],rom_seg2[t+1]);
-		}
-#endif
-#ifdef GALAKSIJA
-	else if((t-0x1000) < ROM_SIZE2) {			// GALAKSIJA
-		t-=0x1000;
-		i=MAKEWORD(rom_seg2[t],rom_seg2[t+1]);
-		}
-#endif
-	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-		i=MAKEWORD(ram_seg[t],ram_seg[t+1]);
-		}
-#ifdef GALAKSIJA
-  // serve??
-//    if(t<=0x37)
-//      i = Keyboard[t & 0x7] & (t >> 3) ? 1 : 0;   // i 3 bit bassi pilotano il mux lettura, i 3 alti il mux scrittura, out è su D0
-//    else
-//      i = Latch;   // 
-#endif
-#endif
-	return i;
-	}
-
-BYTE GetPipe(SWORD t) {
-
-#ifdef NEZ80
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-	  Pipe1=ram_seg[t++];
-		Pipe2.b.l=ram_seg[t++];
-//		Pipe2.b.h=ram_seg[t++];
-//		Pipe2.b.u=ram_seg[t];
-		Pipe2.b.h=ram_seg[t];
-		}
-	else if(t >= ROM_START && t < (ROM_START+ROM_SIZE)) {
-		t-=ROM_START;
-	  Pipe1=rom_seg[t++];
-		Pipe2.b.l=rom_seg[t++];
-//		Pipe2.b.h=rom_seg[t++];
-//		Pipe2.b.u=rom_seg[t];
-		Pipe2.b.h=rom_seg[t];
-		}
-#else
-#ifdef ZX80
-	t &= 0x7fff;
-#endif
-#ifdef ZX81
-	t &= 0x7fff;
-#endif
-	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
-	  Pipe1=rom_seg[t++];
-		Pipe2.b.l=rom_seg[t++];
-//		Pipe2.b.h=rom_seg[t++];
-//		Pipe2.b.u=rom_seg[t];
-		Pipe2.b.h=rom_seg[t];
-		}
-#ifdef SKYNET
-	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
-		t-=0x4000;
-	  Pipe1=rom_seg2[t++];
-		Pipe2.b.l=rom_seg2[t++];
-//		Pipe2.b.h=rom_seg2[t++];
-//		Pipe2.b.u=rom_seg2[t];
-		Pipe2.b.h=rom_seg2[t];
-		}
-#endif
-#ifdef GALAKSIJA
-	else if((t-0x1000) < ROM_SIZE2) {			// GALAKSIJA
-		t-=0x1000;
-	  Pipe1=rom_seg2[t++];
-		Pipe2.b.l=rom_seg2[t++];
-//		Pipe2.b.h=rom_seg2[t++];
-//		Pipe2.b.u=rom_seg2[t];
-		Pipe2.b.h=rom_seg2[t];
-		}
-#endif
-	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-	  Pipe1=ram_seg[t++];
-		Pipe2.b.l=ram_seg[t++];
-//		Pipe2.b.h=ram_seg[t++];
-//		Pipe2.b.u=ram_seg[t];
-		Pipe2.b.h=ram_seg[t];
-		}
-#endif
-	return Pipe1;
-	}
-
-void PutValue(SWORD t,BYTE t1) {
-	register SWORD i;
-
-// printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
-
-#ifdef NEZ80
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-	  ram_seg[t-RAM_START]=t1;
-		}
-#else
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {		// ZX80,81,Galaksija
-	  ram_seg[t-RAM_START]=t1;
-		}
-#ifdef ZX80
-	else {
-		}
-#elif ZX81
-	else {
-		}
-#elif SKYNET
-  else if(t==0xe000) {        //
-    IOPortO=t1;      // b5 è speaker...
-    LATDbits.LATD1= t1 & 0b00100000 ? 1 : 0;
-//    LATEbits.LATE2= t1 & 0b10000000 ? 1 : 0;  // led, fare se si vuole
-//    LATEbits.LATE3= t1 & 0b01000000 ? 1 : 0;
-// finire volendo...    if(IOPortO & 0x1)
-//      IOPortI &= ~0x5;
-    }
-  else if(t>=0xe002 && t<=0xe003) {        //   CMOS RAM/RTC (Real Time Clock  MC146818)
-    t &= 0x1;
-    switch(t) {
-      case 0:
-        i146818RegR[0]=i146818RegW[0]=t1;
-//        time_t;
-        break;
-      case 1:     // il bit 7 attiva/disattiva NMI
-        i146818RegW[t]=t1;
-        switch(i146818RegW[0] & 0x3f) {
-          case 0:
-            currentTime.sec=t1;
-            break;
-            // in mezzo c'è Alarm...
-          case 2:
-            currentTime.min=t1;;
-            break;
-          case 4:
-            currentTime.hour=t1;
-            break;
-          // 6 è day of week...
-          case 7:
-            currentDate.mday=t1;
-            break;
-          case 8:
-            currentDate.mon=t1;
-            break;
-          case 9:
-            currentDate.year=t1;
-            break;
-          case 10:
-            t1 &= 0x7f;     // vero hardware!
-            t1 |= i146818RAM[10] & 0x80;
-            goto writeRegRTC;
-            break;
-          case 11:
-            if(t1 & 0x80)
-              i146818RAM[10] &= 0x7f;
-            goto writeRegRTC;
-            break;
-          case 12:
-            t1 &= 0xf0;     // vero hardware!
-            goto writeRegRTC;
-            break;
-          case 13:
-            t1 &= 0x80;     // vero hardware!
-            goto writeRegRTC;
-            break;
-          default:      // in effetti ci sono altri 4 registri... RAM da 14 in poi 
-writeRegRTC:            
-            i146818RAM[i146818RegW[0] & 0x3f] = t1;
-            break;
-          }
-        break;
-      }
-		}
-  else if(t==0xe004) {
-    ClIRQPort;
-    }
-  else if(t==0xe005) {
-		WDCnt=MAX_WATCHDOG;
-    ClWDPort;
-    }
-#elif GALAKSIJA
-  else if((t >= 0x2000) && (t <= 0x27ff)) {
-    t &= 0x3f;
-    if(t<=0x37)
-      ; //non dovrebbe servirmi...
-    else
-      Latch=t1;   // 
-    }
-#endif
-#endif
-
-	}
-
-void PutIntValue(SWORD t,SWORD t1) {
-	register SWORD i;
-
-// printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
-
-#ifdef NEZ80
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
-		t-=RAM_START;
-	  ram_seg[t++]=LOBYTE(t1);
-	  ram_seg[t]=HIBYTE(t1);
-		}
-#else
-	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {		// ZX80,81,Galaksija
-		t-=RAM_START;
-	  ram_seg[t++]=LOBYTE(t1);
-	  ram_seg[t]=HIBYTE(t1);
-		}
-#endif
-	}
-
-void OutValue(SWORD t,BYTE t1) {   // 
-	register SWORD i;
-
-// printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
-
-#ifdef ZX80
-/*  Output to Port FFh (or ANY other port)
-Writing any data to any port terminates the Vertical Retrace period, and
-restarts the LINECNTR counter. The retrace signal is also output to the
-cassette (ie. the Cassette Output becomes High)*/
-  switch(t) {
-    lineCntr=0;
-    }
-#elif ZX81
-/*Port FDh Write (ZX81 only)
-Writing any data to this port disables the NMI generator.
-Port FEh Write (ZX81 only)
-Writing any data to this port enables the NMI generator.
-NMIs (Non maskable interrupts) are used during SLOW mode vertical blanking
-periods to count the number of drawn blank scanlines.
-   */
-  switch(t) {
-    case 0xfd:
-      NMIGenerator=0;
-      break;
-    case 0xfe:
-      NMIGenerator=1;
-      break;
-    }
-#elif SKYNET
-  switch(t & 0xff) {
-    case IO_BOARD_ADDRESS:
-    case IO_BOARD_ADDRESS+1:
-    case IO_BOARD_ADDRESS+2:
-    case IO_BOARD_ADDRESS+3:
-      IOExtPortO[t-IO_BOARD_ADDRESS]=t1;
-      break;
-
-    case LCD_BOARD_ADDRESS:
-      // per motivi che ora non ricordo, il BIOS indirizza 0..3 mentre la 2°EEprom (casanet) aveva indirizzi doppi o meglio bit 0..1 messi a 2-0
-      // potrei ricompilare casanet per andare "dritto" 0..3, per ora lascio così (unico problema è conflitto a +6 con la tastiera... amen! tanto scrive solo all'inizio)
-      i8255RegW[0]=t1;
-      break;
-    case LCD_BOARD_ADDRESS+2:
-      if(i8255RegW[1] & 4 && !(t1 & 4)) {   // quando E scende
-        // in teoria dovremmo salvare in R[0] solo in questo istante, la lettura... ma ok! (v. sopra)
-        if(i8255RegW[1] & 1)	{		// se dati
-          if(!LCDCGDARAM) {
-            LCDram[LCDptr]=i8255RegW[0];
-            if(LCDentry & 2) {
-              LCDptr++;
-              if(LCDptr >= 0x7f)			// parametrizzare! o forse no, fisso max 127
-                LCDptr=0;
-              }
-            else {
-              LCDptr--;
-              if(LCDptr < 0)			// parametrizzare!
-                LCDptr=0x7f;    // CONTROLLARE
-              }
-            }
-          else {
-            LCDCGram[LCDCGptr++]=i8255RegW[0];
-            LCDCGptr &= 0x3f;
-            }
-          }
-        else {									// se comandi https://www.sparkfun.com/datasheets/LCD/HD44780.pdf
-          if(i8255RegW[0] <= 1) {			// CLS/home
-            LCDptr=0;
-						LCDentry |= 2;		// ripristino INCremento, dice
-            memset(LCDram,' ',sizeof(LCDram) /* 4*40 */);
-            }
-          else if(i8255RegW[0] <= 3) {			// home
-            LCDptr=0;
-            }
-          else if(i8255RegW[0] <= 7) {			// entry mode ecc
-            LCDentry=i8255RegW[0] & 3;
-            }
-          else if(i8255RegW[0] <= 15) {			// display on-off ecc
-            LCDdisplay=i8255RegW[0] & 7;
-            }
-          else if(i8255RegW[0] <= 31) {			// cursor set, increment & shift off
-            LCDcursor=i8255RegW[0] & 15;
-            }
-          else if(i8255RegW[0] <= 63) {			// function set, 2-4 linee
-            LCDfunction=i8255RegW[0] & 31;
-            }
-          else if(i8255RegW[0] <= 127) {			// CG RAM addr set
-            LCDCGptr=i8255RegW[0] & 0x3f;			// 
-            LCDCGDARAM=1;// user defined char da 0x40
-            }
-          else {				// >0x80 = cursor set
-            LCDptr=i8255RegW[0] & 0x7f;			// PARAMETRIZZARE e gestire 2 Enable x 4x40!
-            LCDCGDARAM=0;
-            }
-          }
-        }
-      i8255RegW[1]=i8255RegR[1]=t1;
-      break;
-    case LCD_BOARD_ADDRESS+4:
-      // qua c'è la 3° porta del 8255
-      // il b6 mette a in o out la porta dati A (1=input)
-      i8255RegW[2]=i8255RegR[2]=t1;
-      break;
-    case LCD_BOARD_ADDRESS+5 /* sarebbe 6 ma ovviamente non si può! v. sopra*/:
-      // 8255 settings
-      i8255RegW[3]=i8255RegR[3]=t1;
-      break;
-
-    case LCD_BOARD_ADDRESS+6:   
-      i8042RegR[0]=i8042RegW[0]=t1;
-      if(i8042RegW[1]==0xAA) {
-        }
-      else if(i8042RegW[1]>=0x20 && i8042RegW[1]<0x40) {
-        //KBRAM[i8042RegW[1] & 0x1f]
-        }
-      else if(i8042RegW[1]>=0x60 && i8042RegW[1]<0x80) {
-        KBRAM[i8042RegW[1] & 0x1f]=t1;
-        KBRAM[0] &= 0x7f;     // dice...
-        }
-      else if(i8042RegW[1]==0xC0) {
-        }
-      else if(i8042RegW[1]==0xD0) {
-        }
-      else if(i8042RegW[1]==0xD1) {
-        KBControl=t1;
-        }
-      else if(i8042RegW[1]==0xD2) {
-        Keyboard[0]=t1;
-        }
-      else if(i8042RegW[1]>=0xF0 && i8042RegW[1]<=0xFF) {
-        }
-      break;
-//    case 7:     // keyboard...
-//#warning togliere!
-    case LCD_BOARD_ADDRESS+7:
-      i8042RegR[1]=i8042RegW[1]=t1;
-      if(i8042RegW[1]==0xAA) {
-        }
-      else if(i8042RegW[1]>=0x20 && i8042RegW[1]<0x40) {
-        //KBRAM[i8042RegW[1] & 0x1f]
-        }
-      else if(i8042RegW[1]>=0x60 && i8042RegW[1]<0x80) {
-        //KBRAM[i8042RegW[1] & 0x1f]
-        }
-      else if(i8042RegW[1]==0xC0) {
-        }
-      else if(i8042RegW[1]==0xD0) {
-        }
-      else if(i8042RegW[1]==0xD1) {
-        }
-      else if(i8042RegW[1]==0xD2) {
-        }
-      else if(i8042RegW[1]>=0xF0 && i8042RegW[1]<=0xFF) {
-        }
-      break;
-		}
-#elif NEZ80
-  switch(t & 0xff) {
-    case 0xee:			// interfaccia cassette
-    case 0xef:
-      break;
-    case 0xf0:
-    case 0xf1:
-    case 0xf2:
-    case 0xf3:
-    case 0xf4:
-    case 0xf5:
-    case 0xf6:
-    case 0xf7:
-      i = t & 0x7;
-      DisplayRAM[i]=t1;
-      PlotDisplay(7-i,t1,1);
-      break;
-		}
-#elif GALAKSIJA
-  DoWait=0;
-#endif
-	}
-
 
 union /*__attribute__((__packed__))*/ Z_REG {
   SWORD x;
@@ -1067,8 +138,8 @@ int Emulate(int mode) {
 #endif
 	SWORD _sp=0;
 	BYTE _i,_r;
-	BYTE IRQ_Mode=0;
-	BYTE IRQ_Enable1=0,IRQ_Enable2=0;
+	BYTE IRQ_Mode=1;
+	BYTE IRQ_Enable1=0,IRQ_Enable2=0,inEI=0;
   union Z_REGISTERS regs1,regs2;
   union RESULT res1,res2,res3;
 //  union OPERAND op1,op2;
@@ -1079,6 +150,7 @@ int Emulate(int mode) {
 
 
 #if NEZ80
+#define ROM_START 0x8000
 	_pc=ROM_START;    // truschino sull'hw originale... al boot va qua
 #else
 	_pc=0;
@@ -1092,7 +164,7 @@ int Emulate(int mode) {
 	do {
 
 		c++;
-		if(!(c & 0x3ffff)) {
+		if(!(c & 0xffff)) {
       ClrWdt();
 // yield()
 #ifndef USING_SIMULATOR      
@@ -1109,9 +181,20 @@ int Emulate(int mode) {
 #ifdef ZX81
 			UpdateScreen(0,192,_i);    // fare passate più piccole!
 #endif
+#ifdef MSX
+			UpdateScreen(0,192);    // fare passate più piccole!
+extern BYTE TMS9918Reg[8],TMS9918RegS;
+      TMS9918RegS |= 0b10000000;
+      if(TMS9918Reg[1] & 0b00100000) {
+        VIDIRQ=1;
+        }
+      
+extern BYTE i8255RegW[4];
+      LED3= i8255RegW[2] & 0b01000000 ? 0 : 1;    // CAPS-LOCK!
+#endif
 #endif
       LED1^=1;    // 42mS~ con SKYNET 7/6/20; 10~mS con Z80NE 10/7/21; 35mS GALAKSIJA 16/10/22; 30mS ZX80 27/10/22
-      // QUADRUPLICO/ecc! 27/10/22
+      // raddoppio 2024 (QUADRUPLICO/ecc! 27/10/22
       
 #ifdef SKYNET    
       WDCnt--;
@@ -1126,6 +209,7 @@ int Emulate(int mode) {
       }
 
 		if(ColdReset) {
+			ColdReset=0;
       DoReset=1;
 			continue;
       }
@@ -1144,6 +228,7 @@ int Emulate(int mode) {
 #endif
 #ifdef NEZ80
     if(TIMIRQ) {
+extern BYTE sense50Hz;
       sense50Hz = !sense50Hz;
       TIMIRQ=0;
 // forse... verificare      DoNMI=1;
@@ -1168,6 +253,16 @@ int Emulate(int mode) {
     if(TIMIRQ) {
       DoIRQ=1;
       TIMIRQ=0;
+      }
+#endif
+#ifdef MSX
+    if(TIMIRQ) {
+      DoIRQ=1;
+      TIMIRQ=0;
+      }
+    if(VIDIRQ) {
+      DoIRQ=1;
+      VIDIRQ=0;
       }
 #endif
 
@@ -1195,26 +290,32 @@ int Emulate(int mode) {
 			_pc=0;
 #endif
       _i=_r=0;
-			IRQ_Enable1=0;IRQ_Enable2=0;
-     	IRQ_Mode=0;
+			IRQ_Enable1=0;IRQ_Enable2=0;inEI=0;
+     	IRQ_Mode=1;
+      
+#warning OCCHIO PROPAGARE altri z80 ANCHE IM 1!
 			DoReset=0;DoHalt=0;//DoWait=0;
       keysFeedPtr=255; //meglio ;)
+      
+      initHW();// bah... boh? solo ColdReset?
+
       continue;
 			}
-		if(DoNMI) {
+		if(DoNMI && !inEI) {
 			DoNMI=0; DoHalt=0;
 			IRQ_Enable2=IRQ_Enable1; IRQ_Enable1=0;
 			PutValue(--_sp,HIBYTE(_pc));
 			PutValue(--_sp,LOBYTE(_pc));
 			_pc=0x0066;
 			}
-		if(DoIRQ) {
+		if(DoIRQ && !inEI) {
       
       // LED2^=1;    // 
       DoHalt=0;     // 
       
 			if(IRQ_Enable1) {
-				IRQ_Enable1=0;    // ma non sono troppo sicuro... boh?
+				IRQ_Enable1=IRQ_Enable2=0;    // When the CPU accepts a maskable interrupt, both IFF1 and IFF2 are automatically reset, 
+        //inhibiting further interrupts until the programmer issues a new EI instruction. [was: ma non sono troppo sicuro... boh?]
 				DoIRQ=0;
 				PutValue(--_sp,HIBYTE(_pc));
 				PutValue(--_sp,LOBYTE(_pc));
@@ -1222,6 +323,8 @@ int Emulate(int mode) {
 				  case 0:
 						i=0 /*bus_dati*/;
 						// DEVE ESEGUIRE i come istruzione!!
+            				  	_pc=  i  ;
+
 				  	break;
 				  case 1:
 				  	_pc=0x0038;
@@ -1281,7 +384,7 @@ int Emulate(int mode) {
 */
 #endif    
     
-      if(!SW2) {        // test tastiera, me ne frego del repeat/rientro :)
+      if(!SW1) {        // test tastiera, me ne frego del repeat/rientro :)
        // continue;
         __delay_ms(100); ClrWdt();
 #ifdef NEZ80
@@ -1299,9 +402,12 @@ int Emulate(int mode) {
 //        __delay_ms(100);
 //  			UpdateScreen(0,128);    // 
 #endif
+#ifdef MSX
+        DoReset=1;
+#endif
         }
-      if(!SW1) {        // test tastiera
-#if defined(NEZ80) || defined(ZX80) || defined(ZX81)|| defined(GALAKSIJA)
+      if(!SW2) {        // test tastiera
+#if defined(NEZ80) || defined(ZX80) || defined(ZX81) || defined(GALAKSIJA) || defined(MSX)
         if(keysFeedPtr==255)      // debounce...
           keysFeedPtr=254;
 #endif
@@ -1313,6 +419,8 @@ int Emulate(int mode) {
 /*      if(_pc == 0x069d ab5 43c Cd3) {
         ClrWdt();
         }*/
+    if(inEI)
+      inEI=0;
   
 		switch(GetPipe(_pc++)) {
 			case 0:   // NOP
@@ -1685,7 +793,7 @@ aggSomma:
 
 aggFlagB:
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x40) != !!(((res1.b.l & 0x80) + (res2.b.l & 0x80)) & 0x80);
-        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
+//        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
   //(M^result)&(N^result)&0x80 is nonzero. That is, if the sign of both inputs is different from the sign of the result. (Anding with 0x80 extracts just the sign bit from the result.) 
   //Another C++ formula is !((M^N) & 0x80) && ((M^result) & 0x80)
 //        _f.PV = !!((res1.b.l ^ res3.b.l) & (res2.b.l ^ res3.b.l) & 0x80);
@@ -1712,6 +820,7 @@ aggFlagB:
           _f.PV=res3.b.l & 0x80 ? 1 : 0;
         else
           _f.PV=0;*/
+        _f.PV = !!res3.b.h != !!((res3.b.l & 0x80) ^ (res1.b.l & 0x80) ^ (res2.b.l & 0x80));
         
 aggFlagBC:    // http://www.z80.info/z80sflag.htm
 				_f.Carry=!!res3.b.h;
@@ -1741,7 +850,7 @@ aggSommaC:
         _a=res3.b.l;
         _f.AddSub=0;
         _f.HalfCarry = ((res1.b.l & 0xf) + (res2.b.l & 0xf)) >= 0x10 ? 1 : 0;   // 
-//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore
+//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore ma io credo di sì
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
 /*        if(res1.b.l & 0x80 && res2.b.l & 0x80)
           _f.PV=res3.b.l & 0x80 ? 0 : 1;
@@ -1783,7 +892,16 @@ aggSottr:
           }
         else
           _f.PV=0;*/
-        goto aggFlagB;
+/*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
+          if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
+            _f.PV=1;
+          else
+            _f.PV=0;
+          }
+        else
+          _f.PV=0;*/
+        _f.PV = !!res3.b.h != !!((res3.b.l & 0x80) ^ (res1.b.l & 0x80) ^ (res2.b.l & 0x80));
+  			goto aggFlagBC;
 				break;
 
 			case 0x96:    // SUB A,(HL)
@@ -1807,7 +925,7 @@ aggSottrC:
         _a=res3.b.l;
         _f.AddSub=1;
         _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0  ? 1 : 0;   // 
-//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore
+//#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore ma io credo di sì..
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
 /*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
           if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
@@ -3466,7 +2584,8 @@ aggFlagW:
 //            _f.PV = !!(!((res1.b.h ^ res2.b.h) & 0x80) && ((res1.b.h ^ res3.b.h) & 0x80));
 //**            _f.PV = ((res1.b.h ^ res3.b.h) & (res2.b.h ^ res3.b.h) & 0x80) ? 1 : 0;
     //#warning flag per word o byte?? boh?!
-            _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x80) != !!(((res1.d & 0x8000) + (res2.d & 0x8000)) & 0x10000);
+//            _f.PV = !!(((res1.b.h & 0x40) + (res2.b.h & 0x40)) & 0x80) != !!(((res1.d & 0x8000) + (res2.d & 0x8000)) & 0x10000);
+            _f.PV = !!HIWORD(res3.x) != !!((res3.b.h & 0x80) ^ (res1.b.h & 0x80) ^ (res2.b.h & 0x80));
 
             _f.Zero=res3.x ? 0 : 1;
             _f.Sign=res3.b.h & 0x80 ? 1 : 0;
@@ -3568,7 +2687,7 @@ aggSomma16:
 					case 0x56:
 //					case 0x66:
 //					case 0x76:
-						IRQ_Mode=Pipe2.b.l & 0x10 ? 1: 0;
+						IRQ_Mode=Pipe1 & 0x10 ? 1: 0;
 						break;
 #ifdef Z80_EXTENDED
 					case 0x4c:    // MLT
@@ -3590,8 +2709,10 @@ aggSomma16:
 #endif
 					case 0x5e:    // IM 2
 						IRQ_Mode=2;
+#ifdef Z80_EXTENDED
 //					case 0x7e:
-//						IRQ_Mode=Pipe2.b.l & 0x10 ? 2: -1 /*boh! ma cmq solo se extended ??? */;
+//						IRQ_Mode=Pipe2.b.l & 0x10 ? 2 : -1 /*boh! ma cmq solo se extended ??? */;
+#endif
 						break;
 
 					case 0x47:    // LD i
@@ -3663,13 +2784,13 @@ aggCPI:
 						_f.PV=!!_bc;
 						break;
 					case 0xa2:    // INI
-						PutValue(_hl++,InValue(_bc));
+						PutValue(_hl++,InValue(_c));
 						_b--;
 						_f.Zero=!_b;
             _f.AddSub=1;
 						break;
 					case 0xa3:    // OUTI
-						OutValue(_bc,GetValue(_hl++));
+						OutValue(_c,GetValue(_hl++));
 						_b--;
 						_f.Zero=!_b;
             _f.AddSub=0;
@@ -3694,17 +2815,20 @@ aggCPI:
             goto aggCPI;    // 
 						break;
 					case 0xb2:    // INIR
-						PutValue(_hl++,InValue(_bc));
+						PutValue(_hl++,InValue(_c));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
-						_f.Zero=_f.AddSub=1;  // in teoria solo alla fine... ma ok
+						_f.Zero=!_b;
+						_f.AddSub=1;  // in teoria solo alla fine... ma ok
 						break;
 					case 0xb3:    // OTIR
-						OutValue(_bc,GetValue(_hl++));
+						OutValue(_c,GetValue(_hl++));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
+						_f.Zero=!_b;
+						_f.AddSub=1;  // in teoria solo alla fine... ma ok
 						break;
 
 					case 0xa8:    // LDD
@@ -3748,15 +2872,15 @@ aggCPI:
             goto aggCPI;    // 
 						break;
 					case 0xba:    // INDR
-						PutValue(_hl--,InValue(_bc));
+						PutValue(_hl--,InValue(_c));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
-						_f.Zero=1;  // in teoria solo alla fine... ma ok
+						_f.Zero=!_b;
             _f.AddSub=1;
 						break;
 					case 0xbb:    // OTDR
-						OutValue(_bc,GetValue(_hl--));
+						OutValue(_c,GetValue(_hl--));
 						_b--;
 						if(_b)
 							_pc-=2;			// così ripeto e consento IRQ...
@@ -3825,7 +2949,11 @@ aggCPI:
 				break;
 
 			case 0xfb:    // EI
+//When an EI instruction is executed, any pending interrupt request is not accepted until after the
+//instruction following EI is executed. This single instruction delay is necessary when the
+//next instruction is a return instruction
 			  IRQ_Enable1=IRQ_Enable2=1;
+        inEI=1;
 				break;
 
 			case 0xfc:    // CALL m
@@ -4623,14 +3751,15 @@ compare:
 				res1.b.h=res2.b.h=0;
 				res3.x=res1.x-res2.x;
         _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0 ? 1 : 0;   // 
-        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
+/*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
           if(((res1.b.l & 0x80) && !(res3.b.l & 0x80)) || (!(res1.b.l & 0x80) && (res3.b.l & 0x80)))
             _f.PV=1;
           else
             _f.PV=0;
           }
         else
-          _f.PV=0;
+          _f.PV=0;*/
+        _f.PV = !!res3.b.h != !!((res3.b.l & 0x80) ^ (res1.b.l & 0x80) ^ (res2.b.l & 0x80));
         _f.AddSub=1;
   			goto aggFlagBC;
 				break;
@@ -4639,67 +3768,4 @@ compare:
 		} while(!fExit);
 	}
 
-
-
-#if 0
-main(int argc, char *argv[]) {
-	int i,j,k;
-	unsigned char _based(rom_seg) *s;
-
-	if(argc >=2) {
-		debug=1;
-		}
-	if((rom_seg=_bheapseg(0x6000)) == _NULLSEG)
-		goto fine;
-	if((p=_bmalloc(rom_seg,0x6000)) == _NULLOFF)
-		goto fine;
-	if((ram_seg=_bheapseg(0xffe8)) == _NULLSEG)
-		goto fine;
-	if((p1=_bmalloc(ram_seg,0xffe8)) == _NULLOFF)
-		goto fine;
-	_fmemset(p,0,0x6000);
-	_fmemset(p1,0,0xffe8);
-	stack_seg=ram_seg+10;
-/*
-		for(i=0; i< 8192; i++) {
-			printf("Indirizzo %04x, valore %02x\n",s,*s);
-			s++;
-			}
-		*/
-		close(i);
-		OldTimer=_dos_getvect(0x8);
-		OldCtrlC=_dos_getvect(0x23);
-		OldKeyb = _dos_getvect( 9 );
-		_dos_setvect(0x8,NewTimer);
-		_dos_setvect(0x23,NewCtrlC);
-		_dos_setvect( 9, NewKeyb );
-		_setvideomode(_MRES16COLOR);
-		_clearscreen(_GCLEARSCREEN);
-		_displaycursor( _GCURSOROFF );
-		Emulate();
-		_dos_setvect(0x8,OldTimer);
-		_dos_setvect(0x23,OldCtrlC);
-		_dos_setvect( 9, OldKeyb );
-		_displaycursor( _GCURSORON );
-		_setvideomode(_DEFAULTMODE);
-		}
-fine:
-	if(p1 != _NULLOFF)
-		_bfree(ram_seg,p1);
-	else
-		puts("no off");
-	if(ram_seg != _NULLSEG)
-		_bfreeseg(ram_seg);
-	else
-		puts("no seg");
-	if(p != _NULLOFF)
-		_bfree(rom_seg,p);
-	else
-		puts("no off");
-	if(rom_seg != _NULLSEG)
-		_bfreeseg(rom_seg);
-	else
-		puts("no seg");
-	}
-#endif
 
