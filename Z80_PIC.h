@@ -35,7 +35,7 @@
 
 #define US_TO_CT_TICKS  (CPU_CT_HZ/1000000UL)    // uS to CoreTimer Ticks
     
-#define VERNUML 8
+#define VERNUML 9
 #define VERNUMH 1
 
 //#define ZX80 1
@@ -117,11 +117,29 @@ typedef DWORD COLORREF;
 #define FALSE 0
 
 
+enum {
+  DoReset=1,
+  DoNMI=2,
+  DoIRQ=4,
+  DoWait=8,
+  DoHalt=16
+  };
+
+
+#ifdef ST7735
 #define _TFTWIDTH  		160     //the REAL W resolution of the TFT
 #define _TFTHEIGHT 		128     //the REAL H resolution of the TFT
 
-typedef signed char GRAPH_COORD_T;
-typedef unsigned char UGRAPH_COORD_T;
+typedef int8_t GRAPH_COORD_T;
+typedef uint8_t UGRAPH_COORD_T;
+#endif
+#ifdef ILI9341
+#define _TFTWIDTH  		320     //the REAL W resolution of the TFT
+#define _TFTHEIGHT 		240     //the REAL H resolution of the TFT
+
+typedef int16_t GRAPH_COORD_T;
+typedef uint16_t UGRAPH_COORD_T;
+#endif
 
 void mySYSTEMConfigPerformance(void);
 void myINTEnableSystemMultiVectoredInt(void);
@@ -129,10 +147,12 @@ void myINTEnableSystemMultiVectoredInt(void);
 #define ReadCoreTimer()                  _CP0_GET_COUNT()           // Read the MIPS Core Timer
 
 void ShortDelay(DWORD DelayCount);
-#define __delay_ms(n) ShortDelay(n*100000UL)
-#define __delay_ns(n) ShortDelay(n*100UL)
+//#define __delay_ms(n) ShortDelay(n*100000UL)
+//#define __delay_ns(n) ShortDelay(n*100UL)
 void DelayUs(unsigned int);
 void DelayMs(unsigned int);
+void __delay_us(unsigned int);
+void __delay_ms(unsigned int);
 
 #define ClrWdt() { WDTCONbits.WDTCLRKEY=0x5743; }
 
@@ -196,12 +216,14 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin);
 
 void LCDXY(BYTE, BYTE);
 void LCDCls();
+void LCDWrite(const char *s);
 
 void drawBG();
 
 unsigned int ReadUART1(void);
 void WriteUART1(unsigned int);
 
+#ifdef ST7735           // ST7735 160x128 su Arduino con dsPIC
 #define LED1 LATEbits.LATE2
 #define LED2 LATEbits.LATE3
 #define LED3 LATEbits.LATE4
@@ -224,6 +246,36 @@ void WriteUART1(unsigned int);
 #define	m_LCDDCBit  LATEbits.LATE7 		// pin 
 //#define	m_LCDRSTBit LATBbits.LATB7 //FARE
 //#define	m_LCDBLBit  LATBbits.LATB12
+#endif
+
+#ifdef ILI9341
+
+#define LED1 LATEbits.LATE4
+#define LED2 LATDbits.LATD0
+#define LED3 LATDbits.LATD11
+#define SW2  PORTFbits.RF0
+#define SW1  PORTBbits.RB0          // bah uso AREF tanto per...          
+
+#define	LCDDCTris  TRISBbits.TRISB3				// http://attach01.oss-us-west-1.aliyuncs.com/IC/Datasheet/11009.zip?spm=a2g0o.detail.1000023.9.70352ae94rI9S1&file=11009.zip
+#define	LCDRSTTris TRISBbits.TRISB10
+
+#define	LCDRDTris  TRISBbits.TRISB5          // 
+#define	LCDWRTris  TRISBbits.TRISB4          // WR per LCD parallelo
+#define	LCDSTRTris  TRISBbits.TRISB4         // Strobe per LCD parallelo A3_TRIS (in pratica Write...)
+
+#define	LCDCSTris  TRISBbits.TRISB2
+
+#define	m_LCDDCBit  LATBbits.LATB3 		// 
+#define	m_LCDRSTBit LATBbits.LATB10
+//#define	m_LCDBLBit  LATBbits.LATB12
+
+#define	m_LCDRDBit  LATBbits.LATB5 		// 
+#define	m_LCDWRBit  LATBbits.LATB4 		// per LCD parallelo ILI
+#define	m_LCDSTRBit LATBbits.LATB4        // non è chiaro... m_A3_out; in pratica è WRITE
+
+#define	m_LCDCSBit  LATBbits.LATB2
+
+#endif
 
 #endif
 

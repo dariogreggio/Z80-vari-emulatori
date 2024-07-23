@@ -62,7 +62,8 @@ BYTE debug=0;
 //#define RAM_SIZE 16384 ma DEVE partire dal Top!!
 //#define RAM_START 0xf000  // per VELOCIZZAER debug!
 //#define RAM_SIZE 4096 // ma DEVE partire dal Top!!
-//#define RAM_SIZE2 32768 usare in slot
+#define RAM_SIZE2 65536
+#define RAM_START2 0x0000   // in slot 2, v.sotto
 #define ROM_START 0x0000
 #define ROM_SIZE 32768
 // OCCHIO slot!! v.sotto
@@ -190,7 +191,6 @@ BYTE Keyboard[11]={255,255,255,255,255,255,255,255,255,255,255};
 
 extern volatile BYTE keysFeedPtr;
 
-extern BYTE DoReset,DoIRQ,DoNMI,DoHalt,DoWait;
 #define MAX_WATCHDOG 100      // x30mS v. sotto
 extern WORD WDCnt;
 extern BYTE ColdReset;
@@ -210,6 +210,91 @@ union /*__attribute__((__packed__))*/ {
 BYTE GetValue(SWORD t) {
 	register BYTE i;
 
+#ifdef MSX
+  switch(t & 0b1100000000000000) {
+    case 0<<14:
+      switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
+        case 0:
+          i=rom_seg[t];
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            i=ram_seg2[t-RAM_START2];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 1<<14:
+      switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
+        case 0:
+          i=rom_seg[t];
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            i=ram_seg2[t-RAM_START2];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 2<<14:
+      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
+        case 0<<4:
+          if(t>=RAM_START)
+            i=ram_seg[t-RAM_START];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            i=ram_seg2[t-RAM_START2];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 3<<14:
+      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
+        case 0<<6:
+          if(t>=RAM_START)
+            i=ram_seg[t-RAM_START];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<6:
+          if(t>=RAM_START2)
+            i=ram_seg2[t-RAM_START2];
+          else
+            i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    }
+#ifdef MSX2
+gestire 0xffff per subslot...
+#endif
+#else
 #ifdef NEZ80
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
@@ -226,82 +311,17 @@ BYTE GetValue(SWORD t) {
 #ifdef ZX81
 xché??	t &= 0x7fff;
 #endif
-#ifdef MSX
-  if(t < 0x4000) {
-    switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
-      case 0:
-    		i=rom_seg[t];
-        break;
-      default:
-        i=UNIMPLEMENTED_MEMORY_VALUE;
-        break;
-      }
-    }
-  else if(t < 0x8000) {
-    switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
-      case 0:
-    		i=rom_seg[t];
-        break;
-      default:
-        i=UNIMPLEMENTED_MEMORY_VALUE;
-        break;
-      }
-    }
-#else
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
 		i=rom_seg[t];
 		}
-#endif
 #ifdef SKYNET
 	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
+		i=rom_seg2[t-0x4000];
 		}
 #endif
-#ifdef MSX
-  else if(t>=RAM_START) {
-    if(t < 0x4000) {
-      }
-    else if(t < 0x8000) {
-      }
-    else if(t < 0xc000) {
-      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
-        case 0<<4:
-          i=ram_seg[t-RAM_START];
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<4:
-          i=ram_seg2[t-RAM_START2];
-          break;
-  #endif
-        default:
-          i=UNIMPLEMENTED_MEMORY_VALUE;
-          break;
-        }
-      }
-    else {
-      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
-        case 0<<6:
-          if(t>=RAM_START)
-            i=ram_seg[t-RAM_START];
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<6:
-          i=ram_seg2[t-RAM_START2];
-          break;
-  #endif
-        default:
-          i=UNIMPLEMENTED_MEMORY_VALUE;
-          break;
-        }
-      }
-    }
-#ifdef MSX2
-gestire 0xffff per subslot...
-#endif
-#else
 	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		i=ram_seg[t-RAM_START];
 		}
-#endif
 #ifdef SKYNET
   else if(t==0xe000) {        //
 //    IOPortI = 0b00011100;      // dip-switch=0001; v. main
@@ -372,6 +392,7 @@ gestire 0xffff per subslot...
 #ifdef MSX
 #endif
 #endif
+#endif
 	return i;
 	}
 
@@ -396,7 +417,7 @@ Bit Expl.
 5 Not used (1)
 6 Display Refresh Rate (0=60Hz, 1=50Hz)
 7 Cassette input (0=Normal, 1=Pulse)*/
-  switch(t & 0xff) {
+  switch(t) {     // OCCHIO byte alto! qua è così
 /*          A8   A9  A10  A11  A12  A13  A14  A15  Keyboard layout
             |    |    |    |    |    |    |    |
     K4 -    V    G    T    5    6    Y    H    B
@@ -416,55 +437,55 @@ EFFEh 4 (A12) 0 9 8 7 6
 DFFEh 5 (A13) P O I U Y
 BFFEh 6 (A14) ENTER L K J H
 7FFEh 7 (A15) SPC . M N B*/
-    case 0xFE:
+    case 0xFEFE:
       i = Keyboard[0];
       break;
-    case 0xFD:
+    case 0xFDFE:
       i = Keyboard[1];
       break;
-    case 0xFB:
+    case 0xFBFE:
       i = Keyboard[2];
       break;
-    case 0xF7:
+    case 0xF7FE:
       i = Keyboard[3];
       break;
-    case 0xEF:
+    case 0xEFFE:
       i = Keyboard[4];
       break;
-    case 0xDF:
+    case 0xDFFE:
       i = Keyboard[5];
       break;
-    case 0xBF:
+    case 0xBFFE:
       i = Keyboard[6];
       break;
-    case 0x7F:
+    case 0x7FFE:
       i = Keyboard[7];
       break;
     }
 #elif ZX81
-  switch(t & 0xff) {
-    case 0xFE:
+  switch(t) {     // OCCHIO byte alto! qua è così
+    case 0xFEFE:
       i = Keyboard[0];
       break;
-    case 0xFD:
+    case 0xFDFE:
       i = Keyboard[1];
       break;
-    case 0xFB:
+    case 0xFBFE:
       i = Keyboard[2];
       break;
-    case 0xF7:
+    case 0xF7FE:
       i = Keyboard[3];
       break;
-    case 0xEF:
+    case 0xEFFE:
       i = Keyboard[4];
       break;
-    case 0xDF:
+    case 0xDFFE:
       i = Keyboard[5];
       break;
-    case 0xBF:
+    case 0xBFFE:
       i = Keyboard[6];
       break;
-    case 0x7F:
+    case 0x7FFE:
       i = Keyboard[7];
       break;
     }
@@ -798,6 +819,91 @@ LX.683 	interfaccia hard-disk 	eprom su scheda floppy LX.390: 0xF000 - 0xF7FF 	0
 SWORD GetIntValue(SWORD t) {
 	register SWORD i;
 
+#ifdef MSX
+  switch(t & 0b1100000000000000) {
+    case 0<<14:
+      switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
+        case 0:
+      		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+        		i=MAKEWORD(ram_seg2[t-RAM_START2],ram_seg2[t-RAM_START2+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#endif
+        default:
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+        }
+      break;
+    case 1<<14:
+      switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
+        case 0:
+      		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+        		i=MAKEWORD(ram_seg2[t-RAM_START2],ram_seg2[t-RAM_START2+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#endif
+        default:
+          i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+        }
+      break;
+    case 2<<14:
+      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
+        case 0<<4:
+          if(t>=RAM_START)
+        		i=MAKEWORD(ram_seg[t-RAM_START],ram_seg[t-RAM_START+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+        		i=MAKEWORD(ram_seg2[t-RAM_START2],ram_seg2[t-RAM_START2+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#endif
+        default:
+          i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+        }
+      break;
+    case 3<<14:
+      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
+        case 0<<6:
+          if(t>=RAM_START)
+        		i=MAKEWORD(ram_seg[t-RAM_START],ram_seg[t-RAM_START+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<6:
+          if(t>=RAM_START2)
+        		i=MAKEWORD(ram_seg2[t-RAM_START2],ram_seg2[t-RAM_START2+1]);
+          else
+            i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+#endif
+        default:
+          i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
+          break;
+        }
+      break;
+    }
+#ifdef MSX2
+gestire 0xffff per subslot... ?? qua
+#endif
+#else
 #ifdef NEZ80
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
@@ -816,32 +922,9 @@ SWORD GetIntValue(SWORD t) {
 	t &= 0x7fff;
   ??
 #endif
-#ifdef MSX
-  if(t < 0x4000) {
-    switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
-      case 0:
-    		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
-        break;
-      default:
-        i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-        break;
-      }
-    }
-  else if(t < 0x8000) {
-    switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
-      case 0<<2:
-    		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
-        break;
-      default:
-        i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-        break;
-      }
-    }
-#else
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija, 
 		i=MAKEWORD(rom_seg[t],rom_seg[t+1]);
 		}
-#endif
 #ifdef SKYNET
 	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
 		t-=0x4000;
@@ -854,53 +937,10 @@ SWORD GetIntValue(SWORD t) {
 		i=MAKEWORD(rom_seg2[t],rom_seg2[t+1]);
 		}
 #endif
-#ifdef MSX
-  else if(t>=RAM_START) {
-    if(t < 0x4000) {
-      }
-    else if(t < 0x8000) {
-      }
-    else if(t < 0xc000) {
-      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
-        case 0<<4:
-          t-=RAM_START;
-          i=MAKEWORD(ram_seg[t],ram_seg[t+1]);
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<4:
-          t-=RAM_START2;
-          i=MAKEWORD(ram_seg2[t],ram_seg2[t+1]);
-          break;
-  #endif
-        default:
-          i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-          break;
-        }
-      }
-    else {
-      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
-        case 0<<6:
-          t-=RAM_START;
-          i=MAKEWORD(ram_seg[t],ram_seg[t+1]);
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<6:
-          t-=RAM_START2;
-          i=MAKEWORD(ram_seg2[t],ram_seg2[t+1]);
-          break;
-  #endif
-        default:
-          i=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-          break;
-        }
-      }
-    }
-#else
 	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
 		i=MAKEWORD(ram_seg[t],ram_seg[t+1]);
 		}
-#endif
 #ifdef GALAKSIJA
   // serve??
 //    if(t<=0x37)
@@ -909,11 +949,184 @@ SWORD GetIntValue(SWORD t) {
 //      i = Latch;   // 
 #endif
 #endif
+#endif
 	return i;
 	}
 
 BYTE GetPipe(SWORD t) {
 
+#ifdef MSX
+  switch(t & 0b1100000000000000) {
+    case 0<<14:
+      switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
+        case 0:
+          Pipe1=rom_seg[t++];
+          Pipe2.b.l=rom_seg[t++];
+      //		Pipe2.b.h=rom_seg[t++];
+      //		Pipe2.b.u=rom_seg[t];
+          Pipe2.b.h=rom_seg[t];
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            Pipe1=ram_seg2[t++];
+            Pipe2.b.l=ram_seg2[t++];
+        //		Pipe2.b.h=ram_seg[t++];
+        //		Pipe2.b.u=ram_seg[t];
+            Pipe2.b.h=ram_seg2[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#endif
+        default:
+          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 1<<14:
+      switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
+        case 0:
+          Pipe1=rom_seg[t++];
+          Pipe2.b.l=rom_seg[t++];
+      //		Pipe2.b.h=rom_seg[t++];
+      //		Pipe2.b.u=rom_seg[t];
+          Pipe2.b.h=rom_seg[t];
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            Pipe1=ram_seg2[t++];
+            Pipe2.b.l=ram_seg2[t++];
+        //		Pipe2.b.h=ram_seg2[t++];
+        //		Pipe2.b.u=ram_seg2[t];
+            Pipe2.b.h=ram_seg2[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#endif
+        default:
+          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 2<<14:
+      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
+        case 0<<4:
+          if(t>=RAM_START) {
+            t-=RAM_START;
+            Pipe1=ram_seg[t++];
+            Pipe2.b.l=ram_seg[t++];
+        //		Pipe2.b.h=ram_seg[t++];
+        //		Pipe2.b.u=ram_seg[t];
+            Pipe2.b.h=ram_seg[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            Pipe1=ram_seg2[t++];
+            Pipe2.b.l=ram_seg2[t++];
+        //		Pipe2.b.h=ram_seg2[t++];
+        //		Pipe2.b.u=ram_seg2[t];
+            Pipe2.b.h=ram_seg2[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#endif
+        default:
+          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 3<<14:
+      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
+        case 0<<6:
+          if(t>=RAM_START) {
+            t-=RAM_START;
+            Pipe1=ram_seg[t++];
+            Pipe2.b.l=ram_seg[t++];
+        //		Pipe2.b.h=ram_seg[t++];
+        //		Pipe2.b.u=ram_seg[t];
+            Pipe2.b.h=ram_seg[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<6:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            Pipe1=ram_seg2[t++];
+            Pipe2.b.l=ram_seg2[t++];
+        //		Pipe2.b.h=ram_seg2[t++];
+        //		Pipe2.b.u=ram_seg2[t];
+            Pipe2.b.h=ram_seg2[t];
+            }
+          else {
+            Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+        //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+            Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+            }
+          break;
+#endif
+        default:
+          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.l=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+      //		Pipe2.b.u=UNIMPLEMENTED_MEMORY_VALUE;
+          Pipe2.b.h=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    }
+#else
 #ifdef NEZ80
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
@@ -940,43 +1153,6 @@ BYTE GetPipe(SWORD t) {
 	t &= 0x7fff;
   sicuro??
 #endif
-#ifdef MSX
-//	t &= 0x7fff;
-  // TOGLIERE?! qua
-  
-#endif
-#ifdef MSX
-  if(t < 0x4000) {
-    switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
-      case 0:
-        Pipe1=rom_seg[t++];
-        Pipe2.b.l=rom_seg[t++];
-    //		Pipe2.b.h=rom_seg[t++];
-    //		Pipe2.b.u=rom_seg[t];
-        Pipe2.b.h=rom_seg[t];
-        break;
-      default:
-        Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
-        Pipe2.x=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-        break;
-      }
-    }
-  else if(t < 0x8000) {
-    switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
-      case 0<<2:
-        Pipe1=rom_seg[t++];
-        Pipe2.b.l=rom_seg[t++];
-    //		Pipe2.b.h=rom_seg[t++];
-    //		Pipe2.b.u=rom_seg[t];
-        Pipe2.b.h=rom_seg[t];
-        break;
-      default:
-        Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
-        Pipe2.x=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-        break;
-      }
-    }
-#else
 	if(t < ROM_SIZE) {			// ZX80, 81, Galaksija
 	  Pipe1=rom_seg[t++];
 		Pipe2.b.l=rom_seg[t++];
@@ -984,7 +1160,6 @@ BYTE GetPipe(SWORD t) {
 //		Pipe2.b.u=rom_seg[t];
 		Pipe2.b.h=rom_seg[t];
 		}
-#endif
 #ifdef SKYNET
 	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
 		t-=0x4000;
@@ -1005,66 +1180,6 @@ BYTE GetPipe(SWORD t) {
 		Pipe2.b.h=rom_seg2[t];
 		}
 #endif
-#ifdef MSX
-  else if(t>=RAM_START) {
-    if(t < 0x4000) {
-      }
-    else if(t < 0x8000) {
-      }
-    else if(t < 0xc000) {
-      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
-        case 0<<4:
-          t-=RAM_START;
-          Pipe1=ram_seg[t++];
-          Pipe2.b.l=ram_seg[t++];
-      //		Pipe2.b.h=ram_seg[t++];
-      //		Pipe2.b.u=ram_seg[t];
-          Pipe2.b.h=ram_seg[t];
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<4:
-          t-=RAM_START2;
-          Pipe1=ram_seg2[t++];
-          Pipe2.b.l=ram_seg2[t++];
-      //		Pipe2.b.h=ram_seg2[t++];
-      //		Pipe2.b.u=ram_seg2[t];
-          Pipe2.b.h=ram_seg2[t];
-          break;
-  #endif
-        default:
-          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
-          Pipe2.x=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-          break;
-        }
-      }
-    else {
-      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
-        case 0<<6:
-          t-=RAM_START;
-          Pipe1=ram_seg[t++];
-          Pipe2.b.l=ram_seg[t++];
-      //		Pipe2.b.h=ram_seg[t++];
-      //		Pipe2.b.u=ram_seg[t];
-          Pipe2.b.h=ram_seg[t];
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<6:
-          t-=RAM_START2;
-          Pipe1=ram_seg2[t++];
-          Pipe2.b.l=ram_seg2[t++];
-      //		Pipe2.b.h=ram_seg2[t++];
-      //		Pipe2.b.u=ram_seg2[t];
-          Pipe2.b.h=ram_seg2[t];
-          break;
-  #endif
-        default:
-          Pipe1=UNIMPLEMENTED_MEMORY_VALUE;
-          Pipe2.x=MAKEWORD(UNIMPLEMENTED_MEMORY_VALUE,UNIMPLEMENTED_MEMORY_VALUE);
-          break;
-        }
-      }
-    }
-#else
 	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
 	  Pipe1=ram_seg[t++];
@@ -1083,51 +1198,93 @@ void PutValue(SWORD t,BYTE t1) {
 
 // printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
 
+#ifdef MSX
+  switch(t & 0b1100000000000000) {
+    case 0<<14:
+      switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            ram_seg2[t-RAM_START2]=t1;
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    case 1<<14:
+      switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            ram_seg2[t-RAM_START2]=t1;
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    case 2<<14:
+      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
+        case 0<<4:
+          if(t>=RAM_START)
+            ram_seg[t-RAM_START]=t1;
+          else
+            ;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2)
+            ram_seg2[t-RAM_START2]=t1;
+          else
+            ;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 3<<14:
+      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
+        case 0<<6:
+          if(t>=RAM_START)
+            ram_seg[t-RAM_START]=t1;
+          else
+            ;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<6:
+          if(t>=RAM_START2)
+            ram_seg2[t-RAM_START2]=t1;
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    }
+#ifdef MSX2
+gestire 0xffff per subslot...
+#endif
+#else
 #ifdef NEZ80
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 	  ram_seg[t-RAM_START]=t1;
 		}
 #else
-#ifdef MSX
-  if(t>=RAM_START) {
-    if(t < 0x4000) {
-      }
-    else if(t < 0x8000) {
-      }
-    else if(t < 0xc000) {
-      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
-        case 0<<4:
-          ram_seg[t-RAM_START]=t1;
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<4:
-          ram_seg2[t-RAM_START2]=t1;
-          break;
-  #endif
-        default:
-          break;
-        }
-      }
-    else {
-      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
-        case 0<<6:
-          ram_seg[t-RAM_START]=t1;
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<6:
-          ram_seg2[t-RAM_START2]=t1;
-          break;
-  #endif
-        default:
-          break;
-        }
-      }
-    }
-#else
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {		// ZX80,81,Galaksija
 	  ram_seg[t-RAM_START]=t1;
 		}
-#endif
 #ifdef ZX80
 	else {
 		}
@@ -1216,6 +1373,7 @@ writeRegRTC:
     }
 #endif
 #endif
+#endif
 
 	}
 
@@ -1224,61 +1382,116 @@ void PutIntValue(SWORD t,SWORD t1) {
 
 // printf("rom_seg: %04x, p: %04x\n",rom_seg,p);
 
+#ifdef MSX
+  switch(t & 0b1100000000000000) {
+    case 0<<14:
+      switch(i8255RegW[0] & 0b00000011) {      // gestire slot, 
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START) {
+            t-=RAM_START2;
+            ram_seg2[t++]=LOBYTE(t1);
+            ram_seg2[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    case 1<<14:
+      switch(i8255RegW[0] & 0b00001100) {      // gestire slot, 
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            ram_seg2[t++]=LOBYTE(t1);
+            ram_seg2[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    case 2<<14:
+      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
+        case 0<<4:
+          if(t>=RAM_START) {
+            t-=RAM_START;
+            ram_seg[t++]=LOBYTE(t1);
+            ram_seg[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<4:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            ram_seg2[t++]=LOBYTE(t1);
+            ram_seg2[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#endif
+        default:
+          i=UNIMPLEMENTED_MEMORY_VALUE;
+          break;
+        }
+      break;
+    case 3<<14:
+      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
+        case 0<<6:
+          if(t>=RAM_START) {
+            t-=RAM_START;
+            ram_seg[t++]=LOBYTE(t1);
+            ram_seg[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#ifdef RAM_SIZE2 
+        case 2<<6:
+          if(t>=RAM_START2) {
+            t-=RAM_START2;
+            ram_seg2[t++]=LOBYTE(t1);
+            ram_seg2[t]=HIBYTE(t1);
+            }
+          else
+            ;
+          break;
+#endif
+        default:
+          ;
+          break;
+        }
+      break;
+    }
+#ifdef MSX2
+gestire 0xffff per subslot... qua?
+#endif
+#else
 #ifdef NEZ80
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
 		t-=RAM_START;
 	  ram_seg[t++]=LOBYTE(t1);
 	  ram_seg[t]=HIBYTE(t1);
 		}
-#elif MSX
-  if(t>=RAM_START) {
-    if(t < 0x4000) {
-      }
-    else if(t < 0x8000) {
-      }
-    else if(t < 0xc000) {
-      switch(i8255RegW[0] & 0b00110000) {      // gestire slot, 
-        case 0<<4:
-          t-=RAM_START;
-          ram_seg[t++]=LOBYTE(t1);
-          ram_seg[t]=HIBYTE(t1);
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<4:
-          t-=RAM_START2;
-          ram_seg2[t++]=LOBYTE(t1);
-          ram_seg2[t]=HIBYTE(t1);
-          break;
-  #endif
-        default:
-          break;
-        }
-      }
-    else {
-      switch(i8255RegW[0] & 0b11000000) {      // gestire slot, 
-        case 0<<6:
-          t-=RAM_START;
-          ram_seg[t++]=LOBYTE(t1);
-          ram_seg[t]=HIBYTE(t1);
-          break;
-  #ifdef RAM_SIZE2 
-        case 2<<6:
-          t-=RAM_START2;
-          ram_seg2[t++]=LOBYTE(t1);
-          ram_seg2[t]=HIBYTE(t1);
-          break;
-  #endif
-        default:
-          break;
-        }
-      }
-    }
 #else
 	if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {		// ZX80,81,Galaksija
 		t-=RAM_START;
 	  ram_seg[t++]=LOBYTE(t1);
 	  ram_seg[t]=HIBYTE(t1);
 		}
+#endif
 #endif
 	}
 
@@ -1292,8 +1505,10 @@ void OutValue(SWORD t,BYTE t1) {   //
 Writing any data to any port terminates the Vertical Retrace period, and
 restarts the LINECNTR counter. The retrace signal is also output to the
 cassette (ie. the Cassette Output becomes High)*/
-  switch(t & 0xff) {
-    lineCntr=0;
+  switch(t) {     // OCCHIO byte alto! qua è così VERIFICARE out
+    default:
+      lineCntr=0;
+      break;
     }
 #elif ZX81
 /*Port FDh Write (ZX81 only)
@@ -1303,7 +1518,7 @@ Writing any data to this port enables the NMI generator.
 NMIs (Non maskable interrupts) are used during SLOW mode vertical blanking
 periods to count the number of drawn blank scanlines.
    */
-  switch(t & 0xff) {
+  switch(t) {     // OCCHIO byte alto! qua è così VERIFICARE out
     case 0xfd:
       NMIGenerator=0;
       break;
@@ -1544,16 +1759,40 @@ periods to count the number of drawn blank scanlines.
       switch(AY38910RegSel) {
         case 0:
         case 1:
-          i=MAKEWORD(AY38910RegW[0],AY38910RegW[1]);      // ???Hz 6/24
+          i=MAKEWORD(AY38910RegW[0],AY38910RegW[1]);      // ???Hz 6/24  https://www.msx.org/wiki/SOUND
+          i *= 3.5; //fatt correzione 4/7/24
           PR2 = i;		 // 
+#ifdef ST7735
           OC1RS = i/2;		 // 
+#endif
+#ifdef ILI9341
+          OC7RS = i/2;		 // 
+#endif
         case 7:
-          if(!(AY38910RegW[7] & 1)) {
+set_ch0:
+          if(!(AY38910RegW[7] & 1) && (AY38910RegW[8] & 15)) {
+#ifdef ST7735
             OC1CONbits.ON = 1;   // on
+#endif
+#ifdef ILI9341
+            OC7CONbits.ON = 1;   // on
+#endif
             }
           else {
+#ifdef ST7735
             OC1CONbits.ON = 0;   // off
+#endif
+#ifdef ILI9341
+            OC7CONbits.ON = 0;   // off
+#endif
             }
+					AY38910RegR[AY38910RegSel]=AY38910RegW[AY38910RegSel];
+          break;
+        case 8:    // amplitude
+          goto set_ch0;
+          break;
+        case 9:
+        case 10:
 					AY38910RegR[AY38910RegSel]=AY38910RegW[AY38910RegSel];
           break;
         case 14:    // joystick
@@ -1584,19 +1823,42 @@ periods to count the number of drawn blank scanlines.
     case 0xa8+2:      // keyboard scan & cassette ecc, 8255
       i8255RegW[2]=t1;
       i8255RegR[2]=i8255RegW[2];
-      if(i8255RegW[2] & 0x80) {   // key click (SW BUZZER)!!
+      if(i8255RegW[2] & 0x80) {   // key click (SW BUZZER)!! NON va ma boh...
         int pwm1,pwm2,pwmon;
+#ifdef ST7735
         pwm1 = PR2;
         pwm2 = OC1RS;
         pwmon=OC1CONbits.ON;
-        PR2 = 1000;		 // 
-        OC1RS = 1000/2;		 // 
+        PR2 = 60;		 // 2KHz
+        OC1RS = 60/2;		 // 
         OC1CONbits.ON = 1;   // on
         __delay_ms(20);
         OC1CONbits.ON = 0;   // off
         PR2 = pwm1;		 // 
         OC1RS = pwm2;		 // 
         OC1CONbits.ON=pwmon;
+#endif
+#ifdef ILI9341
+        pwm1 = PR2;
+        pwm2 = OC7RS;
+        pwmon=OC7CONbits.ON;
+        PR2 = 60;		 // 2KHz
+        OC7RS = 60/2;		 // 
+        OC7CONbits.ON = 1;   // on
+        __delay_ms(20);
+        OC7CONbits.ON = 0;   // off
+        PR2 = pwm1;		 // 
+        OC7RS = pwm2;		 // 
+        OC7CONbits.ON=pwmon;
+#endif
+        }
+      else {
+#ifdef ST7735
+//        OC1CONbits.ON = 0;   // off
+#endif
+#ifdef ILI9341
+//        OC7CONbits.ON = 0;   // off
+#endif
         }
       // opp accendere se 1 e spegnere se 0...
       break;
@@ -1704,6 +1966,18 @@ extern const unsigned char charset_international[2048],tmsFont[(128-32)*8];
 #endif
   
   keysFeedPtr=255; //
+  
+#ifdef ST7735
+  OC1CONbits.ON = 0;   // spengo buzzer/audio
+  PR2 = 65535;		 // 
+  OC1RS = 65535;		 // 
+#endif
+#ifdef ILI9341
+  OC7CONbits.ON = 0;   // spengo buzzer
+  PR2 = 65535;		 // 
+  OC7RS = 65535;		 // 
+#endif
+
   }
 
 

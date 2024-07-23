@@ -3,6 +3,7 @@
 //#warning CFR Z80HW per modifiche a gestione flag... 2022
 
 //v. metodo usato su 68000 senza byte alto... provare
+// la cosa di inEI... chissà... e anche in 8086
 
 #include <stdio.h>
 #include <ctype.h>
@@ -33,30 +34,30 @@ extern BYTE debug;
 extern volatile BYTE keysFeedPtr;
 extern volatile BYTE TIMIRQ,VIDIRQ;
 
-BYTE DoReset=0,DoIRQ=0,DoNMI=0,DoHalt=0,DoWait=0;
+BYTE CPUPins=DoReset;
 #define MAX_WATCHDOG 100      // x30mS v. sotto
 WORD WDCnt=MAX_WATCHDOG;
 BYTE ColdReset=1;
 BYTE Pipe1;
-union /*__attribute__((__packed__))*/ {
+union __attribute__((__packed__)) {
 	SWORD x;
 	BYTE bb[4];
-	struct /*__attribute__((__packed__))*/ {
+	struct __attribute__((__packed__)) {
 		BYTE l;
 		BYTE h;
 //		BYTE u;		 bah no, sposto la pipe quando ci sono le istruzioni lunghe 4...
 		} b;
 	} Pipe2;
 
-union /*__attribute__((__packed__))*/ Z_REG {
+union __attribute__((__packed__)) Z_REG {
   SWORD x;
-  struct /*__attribute__((__packed__))*/ { 
+  struct __attribute__((__packed__)) { 
     BYTE l;
     BYTE h;
     } b;
 //    } _bc1,_de1,_hl1,_af1,_af2,_bc2,_de2,_hl2;
   };
-union /*__attribute__((__packed__))*/ Z_REGISTERS {
+union __attribute__((__packed__)) Z_REGISTERS {
   BYTE  b[8];
   union Z_REG r[4];
   };
@@ -67,9 +68,9 @@ union /*__attribute__((__packed__))*/ Z_REGISTERS {
 #define ID_HALFCARRY 0x10
 #define ID_ZERO 0x40
 #define ID_SIGN 0x80
-union /*__attribute__((__packed__))*/ REGISTRO_F {
+union __attribute__((__packed__)) REGISTRO_F {
   BYTE b;
-  struct /*__attribute__((__packed__))*/ {
+  struct __attribute__((__packed__)) {
     unsigned int Carry: 1;
     unsigned int AddSub: 1;
     unsigned int PV: 1;   // 1=pari 0=dispari
@@ -80,13 +81,13 @@ union /*__attribute__((__packed__))*/ REGISTRO_F {
     unsigned int Sign: 1;
     };
   };
-union /*__attribute__((__packed__))*/ OPERAND {
+union __attribute__((__packed__)) OPERAND {
   BYTE *reg8;
   WORD *reg16;
   WORD mem;
   };
-union /*__attribute__((__packed__))*/ RESULT {
-  struct /*__attribute__((__packed__))*/ {
+union __attribute__((__packed__)) RESULT {
+  struct __attribute__((__packed__)) {
     BYTE l;
     BYTE h;
     } b;
@@ -164,7 +165,11 @@ int Emulate(int mode) {
 	do {
 
 		c++;
+#ifdef MSX
 		if(!(c & 0xffff)) {
+#else
+		if(!(c & 0x3ffff)) {
+#endif
       ClrWdt();
 // yield()
 #ifndef USING_SIMULATOR      
@@ -201,7 +206,7 @@ extern BYTE i8255RegW[4];
       if(!WDCnt) {
         WDCnt=MAX_WATCHDOG;
         if(IOPortO & 0b00001000) {     // WDEn
-          DoReset=1;
+          CPUPins=DoReset;
           }
         }
 #endif
@@ -210,20 +215,20 @@ extern BYTE i8255RegW[4];
 
 		if(ColdReset) {
 			ColdReset=0;
-      DoReset=1;
+      CPUPins=DoReset;
 			continue;
       }
 
 
 #ifdef SKYNET
     if(RTCIRQ) {
-      DoIRQ=1;
+      CPUPins |= DoIRQ;
 //      ExtIRQNum=0x70;      // IRQ RTC
       LCDram[0x40+20+19]++;
       RTCIRQ=0;
       }
     if(!(IOPortI & 1)) {
-      DoNMI=1;
+ 			CPUPins |= DoNMI;
       }
 #endif
 #ifdef NEZ80
@@ -231,13 +236,13 @@ extern BYTE i8255RegW[4];
 extern BYTE sense50Hz;
       sense50Hz = !sense50Hz;
       TIMIRQ=0;
-// forse... verificare      DoNMI=1;
+// forse... verificare      CPUPins |= DoNMI;     
       }
 #endif
 #ifdef ZX80
     { static oldR=0;
       if(!(_r & 0x40) && (oldR & 0x40)) {
-        DoIRQ=1;
+	      CPUPins |= DoIRQ;
         }
       oldR=_r;
       }
@@ -246,22 +251,22 @@ extern BYTE sense50Hz;
     if(TIMIRQ) {
       TIMIRQ=0;
       if(NMIGenerator)
-        DoNMI=1;      // verificare... horiz. retrace dice...
+	 			CPUPins |= DoNMI;     // verificare... horiz. retrace dice...
       }
 #endif
 #ifdef GALAKSIJA
     if(TIMIRQ) {
-      DoIRQ=1;
+      CPUPins |= DoIRQ;
       TIMIRQ=0;
       }
 #endif
 #ifdef MSX
     if(TIMIRQ) {
-      DoIRQ=1;
+      CPUPins |= DoIRQ;
       TIMIRQ=0;
       }
     if(VIDIRQ) {
-      DoIRQ=1;
+      CPUPins |= DoIRQ;
       VIDIRQ=0;
       }
 #endif
@@ -283,7 +288,7 @@ extern BYTE sense50Hz;
 			printf("33-34: %02x %02x\n",*(p1+0x33),*(p1+0x34));
 			printf("37-38: %02x %02x\n",*(p1+0x37),*(p1+0x38));
 			}*/
-		if(DoReset) {
+		if(CPUPins & DoReset) {
 #if NEZ80
     	_pc=ROM_START;    // truschino sull'hw originale... al boot va qua
 #else
@@ -293,30 +298,29 @@ extern BYTE sense50Hz;
 			IRQ_Enable1=0;IRQ_Enable2=0;inEI=0;
      	IRQ_Mode=1;
       
-#warning OCCHIO PROPAGARE altri z80 ANCHE IM 1!
-			DoReset=0;DoHalt=0;//DoWait=0;
+			CPUPins = 0;//DoWait;
       keysFeedPtr=255; //meglio ;)
       
       initHW();// bah... boh? solo ColdReset?
 
       continue;
 			}
-		if(DoNMI && !inEI) {
-			DoNMI=0; DoHalt=0;
+		if((CPUPins & DoNMI) && !inEI) {
+			CPUPins &= ~(DoNMI | DoHalt);
 			IRQ_Enable2=IRQ_Enable1; IRQ_Enable1=0;
 			PutValue(--_sp,HIBYTE(_pc));
 			PutValue(--_sp,LOBYTE(_pc));
 			_pc=0x0066;
 			}
-		if(DoIRQ && !inEI) {
+		if((CPUPins & DoIRQ) && !inEI) {
       
       // LED2^=1;    // 
-      DoHalt=0;     // 
+			CPUPins &= ~DoHalt;
       
 			if(IRQ_Enable1) {
 				IRQ_Enable1=IRQ_Enable2=0;    // When the CPU accepts a maskable interrupt, both IFF1 and IFF2 are automatically reset, 
         //inhibiting further interrupts until the programmer issues a new EI instruction. [was: ma non sono troppo sicuro... boh?]
-				DoIRQ=0;
+				CPUPins &= ~DoIRQ;
 				PutValue(--_sp,HIBYTE(_pc));
 				PutValue(--_sp,LOBYTE(_pc));
 				switch(IRQ_Mode) {
@@ -339,12 +343,12 @@ extern BYTE sense50Hz;
 		// buttare fuori il valore di _r per il refresh... :)
     _r++;
   
-		if(DoHalt) {
+		if(CPUPins & DoHalt) {
       //mettere ritardino per analogia con le istruzioni?
 //      __delay_ns(500); non va più nulla... boh...
 			continue;		// esegue cmq IRQ e refresh
       }
-		if(DoWait) {
+		if(CPUPins & DoWait) {
       //mettere ritardino per analogia con le istruzioni?
 //      __delay_ns(100);
 			continue;		// esegue cmq IRQ?? penso di no... sistemare
@@ -384,29 +388,29 @@ extern BYTE sense50Hz;
 */
 #endif    
     
-      if(!SW1) {        // test tastiera, me ne frego del repeat/rientro :)
+      if(!SW2) {        // test tastiera, me ne frego del repeat/rientro :)
        // continue;
         __delay_ms(100); ClrWdt();
 #ifdef NEZ80
-        DoReset=1;
+        CPUPins = DoReset;
 #endif
 #ifdef ZX80
-        DoReset=1;
+        CPUPins = DoReset;
 #endif
 #ifdef ZX81
-        DoReset=1;
+        CPUPins = DoReset;
 #endif
 #ifdef GALAKSIJA
-        DoReset=1;
+        CPUPins = DoReset;
   
 //        __delay_ms(100);
 //  			UpdateScreen(0,128);    // 
 #endif
 #ifdef MSX
-        DoReset=1;
+        CPUPins = DoReset;
 #endif
         }
-      if(!SW2) {        // test tastiera
+      if(!SW1) {        // test tastiera
 #if defined(NEZ80) || defined(ZX80) || defined(ZX81) || defined(GALAKSIJA) || defined(MSX)
         if(keysFeedPtr==255)      // debounce...
           keysFeedPtr=254;
@@ -771,7 +775,7 @@ aggRotate:
 				break;
         
 			case 0x76:    // HALT
-			  DoHalt=1;
+			  CPUPins |= DoHalt;
 				break;
 
 			case 0x80:    // ADD A,r
@@ -972,7 +976,7 @@ calcParity:
           par ^= res3.b.l;
           res3.b.l= par >> 4;
           par ^= res3.b.l;
-          _f.PV=par & 1 ? 1 : 0;
+          _f.PV=par & 1 ? 1 : 0;		// EVEN
           }
 				break;
 

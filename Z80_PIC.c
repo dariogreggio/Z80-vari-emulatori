@@ -7,9 +7,15 @@
 #include <sys/attribs.h>
 #include <sys/kmem.h>
 
+#ifdef ST7735
 #include "Adafruit_ST77xx.h"
 #include "Adafruit_ST7735.h"
 #include "adafruit_gfx.h"
+#endif
+#ifdef ILI9341
+#include "Adafruit_ILI9341.h"
+#include "adafruit_gfx.h"
+#endif
 
 
 
@@ -56,7 +62,11 @@
 // DEVCFG0
 #pragma config DEBUG = OFF              // Background Debugger Enable (Debugger is disabled)
 #pragma config JTAGEN = OFF             // JTAG Enable (JTAG Disabled)
+#ifdef ILI9341      // pcb arduino forgetIvrea32
+#pragma config ICESEL = ICS_PGx2        // ICE/ICD Comm Channel Select (Communicate on PGEC2/PGED2)
+#else   // pcb radio 2019
 #pragma config ICESEL = ICS_PGx1        // ICE/ICD Comm Channel Select (Communicate on PGEC1/PGED1)
+#endif
 #pragma config TRCEN = OFF              // Trace Enable (Trace features in the CPU are disabled)
 #pragma config BOOTISA = MIPS32         // Boot ISA Selection (Boot code and Exception code is MIPS32)
 #pragma config FECCCON = OFF_UNLOCKED   // Dynamic Flash ECC Configuration (ECC and Dynamic ECC are disabled (ECCCON bits are writable))
@@ -89,7 +99,7 @@
 
 
 const char CopyrightString[]= {'Z','8','0',' ','E','m','u','l','a','t','o','r',' ','v',
-	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '0','4','/','0','7','/','2','4', 0 };
+	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '2','3','/','0','7','/','2','4', 0 };
 
 const char Copyr1[]="(C) Dario's Automation 2019-2024 - G.Dar\xd\xa\x0";
 
@@ -97,7 +107,7 @@ const char Copyr1[]="(C) Dario's Automation 2019-2024 - G.Dar\xd\xa\x0";
 
 // Global Variables:
 BOOL fExit,debug;
-extern BYTE DoIRQ,DoNMI,DoHalt,DoReset,ColdReset;
+extern BYTE ColdReset;
 extern BYTE ram_seg[];
 extern BYTE rom_seg[],rom_seg2[];
 #ifdef SKYNET
@@ -191,6 +201,9 @@ extern const unsigned char MSX_BIN[];
 WORD displayColor[3]={BLACK,BRIGHTRED,RED};
 
 #ifdef NEZ80
+#ifdef ILI9341
+#error LCD NON SUPPORTATO! fare
+#endif
 int PlotDisplay(WORD pos,BYTE ch,BYTE c) {
 	register int i;
   int x,y;
@@ -255,6 +268,9 @@ int PlotDisplay(WORD pos,BYTE ch,BYTE c) {
 #endif
 
 #ifdef SKYNET
+#ifdef ILI9341
+#error LCD NON SUPPORTATO! fare
+#endif
 int UpdateScreen(WORD c) {
   int x,y,x1,y1;
   SWORD color;
@@ -447,6 +463,7 @@ The BIOS thus needs to 'execute' each character line eight times, before startin
  http://searle.x10host.com/zx80/zx80ScopePics.html
 */
 
+#ifdef ST7735
 #define HORIZ_SIZE 256
 #define VERT_SIZE 192
 #define REAL_SIZE    1      // diciamo :)
@@ -479,7 +496,7 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
 #else
   x2=HORIZ_SIZE/8;
   
-  y2=25; /// CAPIRE PERCHé ce n'è uno in +...
+  y2=25; /// CAPIRE PERCHé ce n'è uno in +... e si parte da 1 quindi (v.sotto
 #endif
   START_WRITE();
   setAddrWindow(0,rowIni,_width,rowFin-rowIni);
@@ -513,7 +530,7 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
           }
 
 #ifdef REAL_SIZE    
-        if(i>=9 && j<x2) {
+        if(i>=9 && j<x2) {    // una riga sotto...
           if(invert) {
             writedata16(ch & 0x80 ? WHITE : BLACK);     // 
             writedata16(ch & 0x40 ? WHITE : BLACK);     // 
@@ -552,9 +569,6 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
           writedata16(ch & 0x4 ? BLACK : WHITE);     // 5:8 -> 256:160
           }
         
-#ifdef USA_SPI_HW
-        ClrWdt();
-#endif
   //	writecommand(CMD_NOP);
 #endif
     
@@ -565,6 +579,10 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
 #endif
 
       curvideopos=oldvideopos;
+      
+#ifdef USA_SPI_HW
+      ClrWdt();
+#endif
 
       }
     oldvideopos=curvideopos+usedpos+1;
@@ -576,13 +594,146 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
   LED3 = 0;
   
 	}
+#endif
+#ifdef ILI9341
+#define HORIZ_SIZE 256
+#define VERT_SIZE 192
+#define DO_STRETCH 1
+int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
+	register int i,j;
+	int k,y1,y2,x2,row1,row2,curvideopos,oldvideopos,usedpos;
+	register BYTE *p,*p1;
+  SWORD D_FILE;
+  BYTE ch,invert;
+
+  // ci mette circa 25mS ogni passata... [[dovrebbe essere la metà... (viene chiamata circa 25-30 volte al secondo e ora siamo a 40mS invece di 20, 16/10/22)
   
+	// per SPI DMA https://www.microchip.com/forums/m1110777.aspx#1110777
+
+  LED3 = 1;
+
+  row1=rowIni;
+  row2=rowFin;
+  START_WRITE();
+#ifdef DO_STRETCH
+  y1=row1/8;
+  y2=row2/8;
+  x2=HORIZ_SIZE/8;
+  y2=VERT_SIZE/8   +1;
+
+
+
+  setAddrWindow(0,0,_width,_height);
+#else
+  y1=row1/8;
+  y2=row2/8;
+  y2=min(y2,VERT_SIZE/8);
+  x2=160/8;
+//  y2=128/8;    // 
+  y2=192/8  +1  ;    // voglio/devo visualizzare le righe inferiori...
+  if(rowIni>=128)
+    rowIni=128;
+  if(rowFin>=128)
+    rowFin=128;
+
+  setAddrWindow(0,rowIni,HORIZ_SIZE,rowFin-rowIni);
+#endif
+  D_FILE=MAKEWORD(ram_seg[0x000c],ram_seg[0x000d]);     // 400Ch
+  if(D_FILE<0x4000)
+    return;
+  curvideopos=oldvideopos=0;
+  for(i=y1; i<y2; i++) {
+    curvideopos=oldvideopos;
+
+#ifdef DO_STRETCH
+    for(k=0; k<10; k++) {      // scanline del carattere da plottare
+#else
+    for(k=0; k<8; k++) {      // scanline del carattere da plottare
+#endif
+      usedpos=0;
+      p1=((BYTE*)&ram_seg[D_FILE+curvideopos-0x4000]);    // carattere a inizio riga corrente
+      for(j=0; j<HORIZ_SIZE/8; j++) {
+        ch=*p1;
+        if(ch != 0x76) {
+          invert=ch & 0x80;
+          ch &= 0x3f;
+          // si potrebbe usare I << 8
+#ifdef DO_STRETCH
+          if(k>=9)
+            p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k-2;    
+          else if(k>=4)
+            p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k-1;    
+          else
+            p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k;    // pattern del carattere da disegnare
+#else
+          p=((BYTE*)&rom_seg)+(((DWORD)_i) << 8) /*0x0e00*/+((DWORD)ch)*8+k;    // pattern del carattere da disegnare
+#endif
+          ch=*p;
+          p1++;
+          curvideopos++;
+          usedpos++;
+          }
+        else {
+          invert=ch=0;
+          }
+
+        if(i>=1 && j<x2) {
+          if(invert) {
+            writedata16(ch & 0x80 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x40 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x20 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+#ifdef DO_STRETCH
+            writedata16(ch & 0x10 ? WHITE : BLACK);     // 
+#endif
+            writedata16(ch & 0x8 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x4 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x2 ? WHITE : BLACK);     // 
+            writedata16(ch & 0x1 ? WHITE : BLACK);     // 
+#ifdef DO_STRETCH
+            writedata16(ch & 0x1 ? WHITE : BLACK);     // 
+#endif
+            }
+          else {
+            writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x20 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+#ifdef DO_STRETCH
+            writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+#endif
+            writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x4 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x2 ? BLACK : WHITE);     // 
+            writedata16(ch & 0x1 ? BLACK : WHITE);     // 
+#ifdef DO_STRETCH
+            writedata16(ch & 0x1 ? BLACK : WHITE);     // 
+#endif
+            }
+         }
+    
+        }
+
+      curvideopos=oldvideopos;
+      }
+    oldvideopos=curvideopos+usedpos+1;
+    ClrWdt();
+    }
+  
+  END_WRITE();
+    
+  LED3 = 0;
+	}
+#endif  
 #endif
 #ifdef ZX81
 //https://problemkaputt.de/zxdocs.htm#zx80zx81videomodetextandblockgraphics
 #define HORIZ_SIZE 256
 #define VERT_SIZE 192
 #define REAL_SIZE    1      // diciamo :)
+#ifdef ILI9341
+#error LCD NON SUPPORTATO! fare
+#endif
 int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
 	register int i,j;
 	int k,y1,y2,x2,row1,row2,curvideopos,oldvideopos,usedpos;
@@ -615,7 +766,7 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
   y2=25; /// CAPIRE PERCHé ce n'è uno in +...
 #endif
   START_WRITE();
-  setAddrWindow(0,rowIni,_width,rowFin-rowIni);
+  setAddrWindow(0,rowIni,HORIZ_SIZE,rowFin-rowIni);
   D_FILE=MAKEWORD(ram_seg[0x000c],ram_seg[0x000d]);     // 400Ch
   if(D_FILE<0x4000)
     return;
@@ -717,10 +868,11 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin, BYTE _i) {
 #endif
 
 #ifdef GALAKSIJA
+extern const unsigned char GALAKSIJA_CHARROM[0x800];
+#ifdef ST7735
 #define HORIZ_SIZE 256
 #define VERT_SIZE 128
 //#define REAL_SIZE    1      // diciamo :)
-extern const unsigned char GALAKSIJA_CHARROM[0x800];
 int UpdateScreen(SWORD rowIni, SWORD rowFin) {
 	register int i,j;
 	int k,y1,y2,x1,x2,row1,row2;
@@ -800,16 +952,86 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
   LED3 = 0;
   
 	}
+#endif
+#ifdef ILI9341
+#define HORIZ_SIZE 256
+#define VERT_SIZE 128
+//#define DO_STRETCH 1
+int UpdateScreen(SWORD rowIni, SWORD rowFin) {
+	register int i,j;
+	int k,y1,y2,x1,x2,row1,row2;
+	register BYTE *p,*p1;
+  BYTE ch;
 
+  // ci mette circa 25mS ogni passata... [[dovrebbe essere la metà... (viene chiamata circa 25-30 volte al secondo e ora siamo a 40mS invece di 20, 16/10/22)
+  
+	// per SPI DMA https://www.microchip.com/forums/m1110777.aspx#1110777
+
+  LED3 = 1;
+
+  row1=rowIni;
+  row2=rowFin;
+  y1=row1/8;
+  y2=row2/8;
+  y2=min(y2,VERT_SIZE/8);
+  x1=0;
+  x2=160/8;
+  y2=10;    // fan 130 vs. 128...
+  START_WRITE();
+#ifdef DO_STRETCH
+  setAddrWindow(0,0,_width,_height);
+#else
+  setAddrWindow(0,rowIni,HORIZ_SIZE,rowFin-rowIni);
+#endif
+  for(i=y1; i<y2; i++) {
+#ifdef DO_STRETCH
+    for(k=0; k<13; k++) {      // scanline del carattere da plottare
+#else
+    for(k=0; k<13; k++) {      // scanline del carattere da plottare
+#endif
+      p1=((BYTE*)&ram_seg[0x0000])+i*(HORIZ_SIZE/8);    // carattere a inizio riga
+      for(j=x1; j<x2; j++) {
+        ch=*p1 & 0x3f;      // v. pdf slide 2250_presentacija
+        if(*p1 & 0x80)
+          ch |= 0x40;
+        p=((BYTE*)&GALAKSIJA_CHARROM)+(ch)+k*128;    // pattern del carattere da disegnare
+        ch=*p;
+
+        writedata16(ch & 0x1 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x2 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x4 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+#ifdef DO_STRETCH
+        writedata16(ch & 0x8 ? BLACK : WHITE);     // 
+#endif
+        writedata16(ch & 0x10 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x20 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x40 ? BLACK : WHITE);     // 
+        writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+#ifdef DO_STRETCH
+        writedata16(ch & 0x80 ? BLACK : WHITE);     // 
+#endif
+
+        p1++;
+        }
+      ClrWdt();
+      }
+    }
+  END_WRITE();
+    
+  LED3 = 0;
+	}
+#endif
 #endif
 #ifdef MSX
 //https://www.angelfire.com/art2/unicorndreams/msx/RR-VDP.html#VDP-StatusReg
-#define REAL_SIZE 1
-#define HORIZ_SIZE 256
-#define VERT_SIZE 192
 const WORD graphColors[16]={BLACK/*transparent*/,BLACK,LIGHTGREEN,BRIGHTGREEN, BLUE,BRIGHTBLUE,RED,BRIGHTCYAN,
   LIGHTRED,BRIGHTRED,YELLOW,LIGHTYELLOW, GREEN,MAGENTA,LIGHTGRAY,WHITE
 	};
+#ifdef ST7735
+//#define REAL_SIZE 1
+#define HORIZ_SIZE 256
+#define VERT_SIZE 192
 int UpdateScreen(SWORD rowIni, SWORD rowFin) {
 	register int i;
 	UINT16 px,py;
@@ -827,23 +1049,25 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
   WORD colorAddress=((WORD)(TMS9918Reg[3])) << 6;
   WORD spriteAttrAddress=((WORD)(TMS9918Reg[5] & 0x7f)) << 7;
   WORD spritePatternAddress=((WORD)(TMS9918Reg[5] & 0x7)) << 11;
-  
+
+
   START_WRITE();
+
   
   if(!(TMS9918Reg[1] & 0b01000000)) {    // blanked
 #ifdef REAL_SIZE
-    setAddrWindow(0,rowIni,_width,rowFin-rowIni);
+    setAddrWindow(0,rowIni,_width,_height /*rowFin-rowIni*/);
     for(py=0; py<_height; py++)    // bordo/sfondo
       for(px=0; px<_width; px++)
         writedata16(graphColors[TMS9918Reg[7] & 0xf]);
 #else
-    setAddrWindow(0,rowIni/2,_width,(rowFin-rowIni)/2);
+    setAddrWindow(0,rowIni/2,_width,_height /*(rowFin-rowIni)/2*/);
     for(py=0; py<_height; py++)    // bordo/sfondo
       for(px=0; px<_width; px++)
         writedata16(graphColors[TMS9918Reg[7] & 0xf]);
 #endif
     }
-  else if(rowIni>=0 && rowIni<=256) {
+  else if(rowIni>=0 && rowIni<=192) {
     
 //  LED3 = 1;
   
@@ -851,22 +1075,25 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
   setAddrWindow(0,rowIni,_width,rowFin-rowIni);
   switch(videoMode) {    
     case 0:     // graphics 1
-      for(py=rowIni; py<rowFin; py++) {    // 192 
-        p1=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
-        for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
-          ch1=*p1++;
-          ch2=VideoRAM[charAddress + (ch1*8) + (py & 7)];
-          color=VideoRAM[colorAddress+py/8];
-          color1=color >> 4; color0=color & 0xf;
+      for(py=rowIni/8; py<rowFin/2/8; py++) {    // 192 
+        p2=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
+        for(row1=0; row1<8; row1++) {    // 192 linee(32 righe char) 
+          p1=p2;
+					for(px=0; px<20 /*32*/ /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
+						ch1=*p1++;
+						ch2=VideoRAM[charAddress + (ch1*8) + (row1)];
+						color=VideoRAM[colorAddress+ch1/8];
+						color1=color >> 4; color0=color & 0xf;
 
-          writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
-                  graphColors[ch2 & 0b01000000 ? color1 : color0]);
-          writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
-                  graphColors[ch2 & 0b00010000 ? color1 : color0]);
-          writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
-                  graphColors[ch2 & 0b00000100 ? color1 : color0]);
-          writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
-                  graphColors[ch2 & 0b00000001 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+										graphColors[ch2 & 0b01000000 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+										graphColors[ch2 & 0b00010000 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+										graphColors[ch2 & 0b00000100 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
+										graphColors[ch2 & 0b00000001 ? color1 : color0]);
+	          }
           }
     #ifdef USA_SPI_HW
         ClrWdt();
@@ -997,9 +1224,9 @@ int UpdateScreen(SWORD rowIni, SWORD rowFin) {
       for(py=rowIni/8; py<rowFin/8; py++) {    // 192 linee diventa 96
         p2=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
         // mettere bordo?
-        for(row1=0; row1<8; row1+=2) {    // 192 lineediventa 96
+        for(row1=0; row1<8; row1+=2) {    // 192 linee diventa 96
           p1=p2;
-          for(px=0; px<32 /*HORIZ_SIZE/8*/; px+=2) {    // 256 pixel diventano 128...
+          for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel diventano 128...
             ch1=*p1++;
             ch2=VideoRAM[charAddress + (ch1*8) + (row1)];
             color=VideoRAM[colorAddress+ch1/8];
@@ -1214,8 +1441,306 @@ handle_sprites:
       writedata16(graphColors[TMS9918Reg[7] & 0xf]);
   
 #endif
+
   END_WRITE();
+
   //	writecommand(CMD_NOP);
+#endif
+#ifdef ILI9341
+#define HORIZ_SIZE 256
+#define VERT_SIZE 192
+#define DO_STRETCH 1
+int UpdateScreen(SWORD rowIni, SWORD rowFin) {
+	register int i;
+	UINT16 px,py;
+	int row1;
+	register BYTE *p1,*p2;
+  BYTE ch1,ch2,color,color1,color0;
+
+  BYTE videoMode=((TMS9918Reg[1] & 0x18) >> 2) | ((TMS9918Reg[0] & 2) >> 1);
+  WORD charAddress=((WORD)(TMS9918Reg[4] & 7)) << 11;
+  WORD videoAddress=((WORD)(TMS9918Reg[2] & 0xf)) << 10;
+  WORD colorAddress=((WORD)(TMS9918Reg[3])) << 6;
+  WORD spriteAttrAddress=((WORD)(TMS9918Reg[5] & 0x7f)) << 7;
+  WORD spritePatternAddress=((WORD)(TMS9918Reg[5] & 0x7)) << 11;
+
+  START_WRITE();
+  
+  if(!(TMS9918Reg[1] & 0b01000000)) {    // blanked
+#ifdef DO_STRETCH
+    setAddrWindow(0,0,_width,_height);
+    for(py=0; py<_height; py++)    // bordo/sfondo
+      for(px=0; px<_width; px++)
+        writedata16(graphColors[TMS9918Reg[7] & 0xf]);
+#else
+    setAddrWindow((_width-HORIZ_SIZE)/2,(_height-VERT_SIZE)/2,HORIZ_SIZE,VERT_SIZE);
+    for(py=0; py<VERT_SIZE; py++)    // bordo/sfondo
+      for(px=0; px<HORIZ_SIZE; px++)
+        writedata16(graphColors[TMS9918Reg[7] & 0xf]);
+#endif
+    }
+  else if(rowIni>=0 && rowIni<=192) {
+    
+//  LED3 = 1;
+  
+#ifdef DO_STRETCH
+  setAddrWindow(0,0,_width,_height);
+#else
+  setAddrWindow((_width-HORIZ_SIZE)/2,(_height-VERT_SIZE)/2,HORIZ_SIZE,VERT_SIZE);
+#endif
+  switch(videoMode) {    
+    case 0:     // graphics 1
+      for(py=rowIni/8; py<rowFin/8; py++) {    // 192 
+        p2=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
+#ifdef DO_STRETCH
+        for(row1=0; row1<10; row1++) {    // 192 linee(32 righe char) 
+#else
+        for(row1=0; row1<8; row1++) {    // 192 linee(32 righe char) 
+#endif
+          p1=p2;
+					for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
+						ch1=*p1++;
+#ifdef DO_STRETCH
+            if(row1>=9)
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1-2)]; 
+            else if(row1>=4)
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1-1)]; 
+            else
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1)]; 
+#else
+            ch2=VideoRAM[charAddress + (ch1*8) + (row1)];
+#endif
+						color=VideoRAM[colorAddress+ch1/8];
+						color1=color >> 4; color0=color & 0xf;
+
+						writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+										graphColors[ch2 & 0b01000000 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+										graphColors[ch2 & 0b00010000 ? color1 : color0]);
+#ifdef DO_STRETCH
+						writedata16(graphColors[ch2 & 0b00010000 ? color1 : color0]);
+#endif
+						writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+										graphColors[ch2 & 0b00000100 ? color1 : color0]);
+						writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
+										graphColors[ch2 & 0b00000001 ? color1 : color0]);
+#ifdef DO_STRETCH
+						writedata16(graphColors[ch2 & 0b00000001 ? color1 : color0]);
+#endif
+	          }
+          }
+        ClrWdt();
+        }
+handle_sprites:
+      { // OVVIAMENTE sarebbe meglio gestirli riga per riga...!
+      struct SPRITE_ATTR *sa;
+      BYTE ssize=TMS9918Reg[1] & 2 ? 32 : 8,smag=TMS9918Reg[1] & 1 ? 16 : 8;
+      BYTE j;
+      
+      sa=((struct SPRITE_ATTR *)&VideoRAM[spriteAttrAddress]);
+      for(i=0; i<32; i++) {
+        struct SPRITE_ATTR *sa2;
+        
+        if(sa->ypos>=LAST_SPRITE_YPOS)
+          continue;
+        
+        j=smag*(ssize==32 ? 2 : 1);
+        sa2=sa+1;
+        for(j=i+1; j<32; j++) {
+          if(sa2->ypos < LAST_SPRITE_YPOS) {
+            
+            if((sa2->ypos>=sa->ypos && sa2->ypos<=sa->ypos+j) &&
+              (sa2->xpos>=sa->xpos && sa2->xpos<=sa->xpos+j)) {
+              // controllare solo i pixel accesi, a 1!
+              TMS9918RegS |= 0b00100000;
+              }
+            // poi ci sarebbe il flag 5 sprite per riga!
+            }
+          sa2++;
+          }
+        
+        p1=((BYTE*)&VideoRAM[spritePatternAddress]) + ((WORD)sa->name*ssize);
+        j=ssize;
+        if(sa->ypos > 0xe1)     // Y diventa negativo..
+          ;
+        if(sa->eclock)     // X diventa negativo..
+          ;
+        setAddrWindow(sa->xpos/2,sa->ypos/2,8/2,8/2);
+        color1=sa->color; color0=TMS9918Reg[7] & 0xf;
+        
+        for(py=0; py<ssize; py++) {
+          ch1=*p1++;
+          if(smag==16) {
+            writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],graphColors[ch2 & 0b10000000 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b1000000 ? color1 : color0],graphColors[ch2 & 0b1000000 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b100000 ? color1 : color0],graphColors[ch2 & 0b100000 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b10000 ? color1 : color0],graphColors[ch2 & 0b10000 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b1000 ? color1 : color0],graphColors[ch2 & 0b1000 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b100 ? color1 : color0],graphColors[ch2 & 0b100 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b10 ? color1 : color0],graphColors[ch2 & 0b10 ? color1 : color0]);
+            writedata16x2(graphColors[ch2 & 0b1 ? color1 : color0],graphColors[ch2 & 0b1 ? color1 : color0]);
+            }
+          else {
+            writedata16(graphColors[ch2 & 0b10000000 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b1000000 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b100000 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b10000 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b1000 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b100 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b10 ? color1 : color0]); 
+            writedata16(graphColors[ch2 & 0b1 ? color1 : color0]); 
+            }
+          j--;
+          switch(j) {   // gestisco i "quadranti" sprite messi a cazzo...
+            case 23:
+              setAddrWindow(sa->xpos/2,sa->ypos/2+8/2,8/2,8/2);
+              break;
+            case 15:
+              p1=((BYTE*)&VideoRAM[spritePatternAddress]) + ((WORD)sa->name*ssize) + 16;
+              setAddrWindow(sa->xpos/2+8/2,sa->ypos/2,8/2,8/2);
+              break;
+            case 7:
+              setAddrWindow(sa->xpos/2+8/2,sa->ypos/2+8/2,8/2,8/2);
+              break;
+            default:
+              break;
+            }
+          }
+          
+        sa++;
+        }
+      }
+      break;
+    case 1:     // graphics 2
+      for(py=rowIni; py<rowFin/3; py++) {    // 192 linee 
+        p1=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
+        for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
+          ch1=*p1++;
+          ch2=VideoRAM[charAddress + (ch1*8) + (py & 7)];
+          color=VideoRAM[colorAddress+py];
+          color1=color >> 4; color0=color & 0xf;
+
+          writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+                  graphColors[ch2 & 0b01000000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+                  graphColors[ch2 & 0b00010000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+                  graphColors[ch2 & 0b00000100 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
+                  graphColors[ch2 & 0b00000001 ? color1 : color0]);
+          }
+        ClrWdt();
+        }
+      for(py=rowFin/3; py<(rowFin*2)/3; py++) {    //
+        p1=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
+        for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
+          ch1=*p1++;
+          ch2=VideoRAM[charAddress +2048 + (ch1*8) + (py & 7)];
+          color=VideoRAM[colorAddress+2048+py];
+          color1=color >> 4; color0=color & 0xf;
+
+          writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+                  graphColors[ch2 & 0b01000000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+                  graphColors[ch2 & 0b00010000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+                  graphColors[ch2 & 0b00000100 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
+                  graphColors[ch2 & 0b00000001 ? color1 : color0]);
+          }
+        ClrWdt();
+        }
+      for(py=(rowFin*2)/3; py<rowFin; py++) {    // 
+        p1=((BYTE*)&VideoRAM[videoAddress]) + (py*32 /*HORIZ_SIZE/8*/);
+        for(px=0; px<32 /*HORIZ_SIZE/8*/; px++) {    // 256 pixel 
+          ch1=*p1++;
+          ch2=VideoRAM[charAddress +4096 + (ch1*8) + (py & 7)];
+          color=VideoRAM[colorAddress+4096+py];
+          color1=color >> 4; color0=color & 0xf;
+
+          writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+                  graphColors[ch2 & 0b01000000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+                  graphColors[ch2 & 0b00010000 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+                  graphColors[ch2 & 0b00000100 ? color1 : color0]);
+          writedata16x2(graphColors[ch2 & 0b00000010 ? color1 : color0],
+                  graphColors[ch2 & 0b00000001 ? color1 : color0]);
+          }
+        ClrWdt();
+        }
+      goto handle_sprites;
+      break;
+    case 2:     // multicolor
+      for(py=rowIni; py<rowFin; py+=4) {    // 48 linee diventano 96
+        p1=((BYTE*)&VideoRAM[videoAddress]) + (py*16);
+        ch1=*p1++;
+        p2=((BYTE*)&VideoRAM[charAddress+ch1]);
+        for(px=0; px<HORIZ_SIZE; px+=2) {    // 64 pixel diventano 128
+          ch2=*p2++;
+          color=VideoRAM[colorAddress+ch2];
+          color1=color >> 4; color0=color & 0xf;
+          
+          // finire!!
+
+          writedata16x2(graphColors[color1],graphColors[color0]);
+          }
+        ClrWdt();
+        }
+      goto handle_sprites;
+      break;
+    case 4:     // text 32x24, ~120mS, O1 opp O2, 2/7/24
+      color1=TMS9918Reg[7] >> 4; color0=TMS9918Reg[7] & 0xf;
+      for(py=rowIni/8; py<rowFin/8; py++) {    // 192 linee(32 righe char) 
+        p2=((BYTE*)&VideoRAM[videoAddress]) + (py*40);
+        // mettere bordo
+#ifdef DO_STRETCH
+        for(row1=0; row1<10; row1++) {    // 192 linee(32 righe char) 
+#else
+        for(row1=0; row1<8; row1++) {    // 192 linee(32 righe char) 
+#endif
+          p1=p2;
+          for(px=0; px<40; px++) {    // 240 pixel 
+            ch1=*p1++;
+#ifdef DO_STRETCH
+            if(row1>=9)
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1-2)]; 
+            else if(row1>=4)
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1-1)]; 
+            else
+              ch2=VideoRAM[charAddress + (ch1*8) + (row1)]; 
+#else
+            ch2=VideoRAM[charAddress + (ch1*8) + (row1)];
+#endif
+
+            writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],
+                    graphColors[ch2 & 0b01000000 ? color1 : color0]);
+#ifdef DO_STRETCH
+						writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+              graphColors[ch2 & 0b00100000 ? color1 : color0]);
+						writedata16(graphColors[ch2 & 0b00010000 ? color1 : color0]);
+#else
+            writedata16x2(graphColors[ch2 & 0b00100000 ? color1 : color0],
+                    graphColors[ch2 & 0b00010000 ? color1 : color0]);
+#endif
+            writedata16x2(graphColors[ch2 & 0b00001000 ? color1 : color0],
+                    graphColors[ch2 & 0b00000100 ? color1 : color0]);
+#ifdef DO_STRETCH
+						writedata16(graphColors[ch2 & 0b00000100 ? color1 : color0]);
+#endif
+
+            }
+//          for(px=0; px<8; px++)     // 240 -> 256
+//            writedata16x2(0,0);
+          }
+        ClrWdt();
+        }
+      break;
+    }
+
+  END_WRITE();    // 
+  
+#endif  
 
    
     
@@ -1234,20 +1759,30 @@ int main(void) {
   // disable JTAG port
 //  DDPCONbits.JTAGEN = 0;
   
+  SYSKEY = 0x00000000;
+  SYSKEY = 0xAA996655;    //qua non dovrebbe servire essendo 1° giro (v. IOLWAY
+  SYSKEY = 0x556699AA;
   CFGCONbits.IOLOCK = 0;      // PPS Unlock
-  RPB15Rbits.RPB15R = 4;        // Assign RPB15 as U6TX, pin 30
-  U6RXRbits.U6RXR = 2;      // Assign RPB14 as U6RX, pin 29 
+  SYSKEY = 0x00000000;
+  
+  RPB9Rbits.RPB9R = 1;        // Assign RPB9 as U3TX, pin 22 (ok arduino)
+// NON SI PUO'... sistemare se serve  U3RXRbits.U3RXR = 2;      // Assign RPB8 as U3RX, pin 21 (ok arduino)
+#ifdef ST7735
 #ifdef USA_SPI_HW
   RPG8Rbits.RPG8R = 6;        // Assign RPG8 as SDO2, pin 6
 //  SDI2Rbits.SDI2R = 1;        // Assign RPG7 as SDI2, pin 5
 #endif
   RPD5Rbits.RPD5R = 12;        // Assign RPD5 as OC1, pin 53; anche vaga uscita audio :)
-  CFGCONbits.IOLOCK = 1;      // PPS Lock
+  RPD1Rbits.RPD1R = 12;        // Assign RPD1 as OC1, pin 49; buzzer
+#endif
+#ifdef ILI9341
+  RPB1Rbits.RPB1R = 12;        // Assign RPB1 as OC7, pin 15; buzzer
+#endif
 
-//  PPSOutput(4,RPC4,OC1);   //buzzer 4KHz , qua rimappabile 
-
+//#define DEBUG_TESTREFCLK  
 #ifdef DEBUG_TESTREFCLK
 // test REFCLK
+#ifdef ST7735
   PPSOutput(4,RPC4,REFCLKO2);   // RefClk su pin 1 (RG15, buzzer)
 	REFOCONbits.ROSSLP=1;
 	REFOCONbits.ROSEL=1;
@@ -1255,8 +1790,32 @@ int main(void) {
 	REFOCONbits.ROON=1;
 	TRISFbits.TRISF3=1;
 #endif
+#ifdef ILI9341
+//  RPD9Rbits.RPD9R = 15;        // Assign RPD9 (SDA) as RefClk3, pin 43
+  RPB8Rbits.RPB8R = 15;        // Assign RPB8 as RefClk3, pin 21 + comodo
+	REFO3CONbits.SIDL=0;
+	REFO3CONbits.RSLP=1;
+	REFO3CONbits.ROSEL=1;   // PBclk
+	REFO3CONbits.RODIV=1;   // :2
+	REFO3CONbits.OE=1;
+	REFO3CONbits.ON=1;
+//	TRISDbits.TRISD9=1;
+	TRISBbits.TRISB8=1;
+#endif
+#endif
+  
+  
+#ifdef ILI9341
+//  while(PB4DIVbits.PBDIVRDY == 0);    // velocizzo clock porte! bah cambia pochissimo... v. WRITE_LATB
+//  PB4DIVbits.PBDIV = 0;   //200MHz va un pizzico meglio/più veloce/coerente SEMBRA un 30-50%! 9/1/23
+//  PB4DIVbits.ON = 1;
+#endif
 
-//	PPSLock;
+  SYSKEY = 0x00000000;
+  SYSKEY = 0xAA996655;
+  SYSKEY = 0x556699AA;
+  CFGCONbits.IOLOCK = 1;      // PPS Lock
+  SYSKEY = 0x00000000;
 
    // Disable all Interrupts
   __builtin_disable_interrupts();
@@ -1289,9 +1848,9 @@ int main(void) {
   // At this point, SYSCLK is ~200MHz derived from FRC+PLL
 //***
   mySYSTEMConfigPerformance();
-  //myINTEnableSystemMultiVectoredInt(();
 
     
+#ifdef ST7735
 	TRISB=0b0000000000110000;			// AN4,5 (rb4..5)
 	TRISC=0b0000000000000000;
 	TRISD=0b0000000000001100;			// 2 pulsanti
@@ -1307,7 +1866,25 @@ int main(void) {
   CNPUDbits.CNPUD3=1;
   CNPUGbits.CNPUG6=1;   // I2C tanto per
   CNPUGbits.CNPUG8=1;  
+#endif
 
+#ifdef ILI9341
+	TRISB=0b0000000000000001;			// pulsante; [ AN ?? ]
+	TRISC=0b0000000000000000;
+	TRISD=0b0000000000000000;			// 2led
+	TRISE=0b0000000000000000;			// led
+	TRISF=0b0000000000000001;			// pulsante
+	TRISG=0b0000000000000000;			// SPI2 (rg6..8)
+
+  ANSELB=0;
+  ANSELE=0;
+  ANSELG=0;
+
+  CNPUFbits.CNPUF0=1;   // switch/pulsanti
+  CNPUBbits.CNPUB0=1;
+  CNPUDbits.CNPUD9=1;   // I2C tanto per
+  CNPUDbits.CNPUD10=1;  
+#endif
       
   
   Timer_Init();
@@ -1318,12 +1895,26 @@ int main(void) {
   ShortDelay(50000); 
 
   
+/*for(;;) {// test timing ok 2024
+  __delay_us(5);
+  ClrWdt();
+  LATB ^= 0xffff;
+  }*/
+
+  
 //    	ColdReset=0;    Emulate(0);
 
 #ifndef USING_SIMULATOR
 //#ifndef __DEBUG
+#ifdef ST7735
   Adafruit_ST7735_1(0,0,0,0,-1);
   Adafruit_ST7735_initR(INITR_BLACKTAB);
+#endif
+#ifdef ILI9341
+  Adafruit_ILI9341_8(8, 9, 10, 11, 12, 13, 14);
+	begin(0);
+  __delay_ms(200);
+#endif
   
 //  displayInit(NULL);
   
@@ -1361,17 +1952,26 @@ int main(void) {
 #endif
 #ifdef ZX80
  	setTextColor(BRIGHTCYAN);
+#ifdef ILI9341
+	LCDXY(18,23);
+#else
 	LCDXY(5,13);
+#endif
 	gfx_print("(emulating ZX80)");
   __delay_ms(1000);
 #endif
 #ifdef MSX
  	setTextColor(BRIGHTBLUE);
+#ifdef ILI9341
+	LCDXY(18,23);
+#else
 	LCDXY(5,14);
+#endif
 	gfx_print("(emulating MSX)");
   __delay_ms(1000);
 #endif
-
+  
+  LCDCls();
 
 //#endif
 #endif
@@ -1411,12 +2011,23 @@ int main(void) {
   }
 
 
+enum CACHE_MODE {
+  UNCACHED=0x02,
+  WB_WA=0x03,
+  WT_WA=0x01,
+  WT_NWA=0x00,
+/* Cache Coherency Attributes */
+//#define _CACHE_WRITEBACK_WRITEALLOCATE      3
+//#define _CACHE_WRITETHROUGH_WRITEALLOCATE   1
+//#define _CACHE_WRITETHROUGH_NOWRITEALLOCATE 0
+//#define _CACHE_DISABLE                      2
+  };
 void mySYSTEMConfigPerformance(void) {
-  unsigned PLLIDIV;
-  unsigned PLLMUL;
-  unsigned PLLODIV;
+  unsigned int PLLIDIV;
+  unsigned int PLLMUL;
+  unsigned int PLLODIV;
   float CLK2USEC;
-  unsigned SYSCLK;
+  unsigned int SYSCLK;
   static unsigned char PLLODIVVAL[]={
     2,2,4,8,16,32,32,32
     };
@@ -1452,8 +2063,8 @@ void mySYSTEMConfigPerformance(void) {
   // Set up caching
   cp0 = _mfc0(16, 0);
   cp0 &= ~0x07;
-  cp0 |= 0b011; // K0 = Cacheable, non-coherent, write-back, write allocate
-  _mtc0(16, 0, cp0);  
+  cp0 |= WB_WA /*0b011*/; // K0 = Cacheable, non-coherent, write-back, write allocate
+   _mtc0(16, 0, cp0);  
   }
 
 void myINTEnableSystemMultiVectoredInt(void) {
@@ -1500,7 +2111,7 @@ void xdelay_us(uint32_t us) {
     } while ((unsigned long)(now_count-start_count) < cycles);
   }
 
-void __attribute__((used)) DelayUs(unsigned int usec) {
+void __attribute__((used)) __delay_us(unsigned int usec) {
   unsigned int tWait, tStart;
 
   tWait=(GetSystemClock()/2000000)*usec;
@@ -1509,10 +2120,10 @@ void __attribute__((used)) DelayUs(unsigned int usec) {
     ClrWdt();        // wait for the time to pass
   }
 
-void __attribute__((used)) DelayMs(unsigned int ms) {
+void __attribute__((used)) __delay_ms(unsigned int ms) {
   
   for(;ms;ms--)
-    DelayUs(1000);
+    __delay_us(1000);
   }
 
 // ===========================================================================
@@ -1562,22 +2173,32 @@ void PWM_Init(void) {
 
   CFGCONbits.OCACLK=0;      // sceglie timer per PWM
   
-  OC1CON = 0x0006;      // TimerX ossia Timer2; PWM mode no fault; Timer 16bit, TimerX
+#ifdef ILI9341
+	OC7CON = 0x0006;      // TimerX ossia Timer2; PWM mode no fault; Timer 16bit, TimerX
+//  OC7R    = 500;		 // su PIC32 è read-only!
+//  OC7RS   = 1000;   // 50%, relativo a PR2 del Timer2
+  OC7R    = 32768;		 // su PIC32 è read-only!
+  OC7RS   = 0;        // per ora faccio solo onda quadra [v. SID reg. 0-1]
+  OC7CONbits.ON = 1;   // on
+#endif
+#ifdef ST7735
+	OC1CON = 0x0006;      // TimerX ossia Timer2; PWM mode no fault; Timer 16bit, TimerX
 //  OC1R    = 500;		 // su PIC32 è read-only!
 //  OC1RS   = 1000;   // 50%, relativo a PR2 del Timer2
   OC1R    = 32768;		 // su PIC32 è read-only!
   OC1RS   = 0;        // per ora faccio solo onda quadra [v. SID reg. 0-1]
   OC1CONbits.ON = 1;   // on
+#endif
 
   }
 
 void UART_Init(DWORD baudRate) {
   
-  U6MODE=0b0000000000001000;    // BRGH=1
-  U6STA= 0b0000010000000000;    // TXEN
+  U3MODE=0b0000000000001000;    // BRGH=1
+  U3STA= 0b0000010000000000;    // TXEN
   DWORD baudRateDivider = ((GetPeripheralClock()/(4*baudRate))-1);
-  U6BRG=baudRateDivider;
-  U6MODEbits.ON=1;
+  U3BRG=baudRateDivider;
+  U3MODEbits.ON=1;
   
 #if 0
   ANSELDCLR = 0xFFFF;
@@ -1611,7 +2232,7 @@ void UART_Init(DWORD baudRate) {
 
 char BusyUART1(void) {
   
-  return(!U6STAbits.TRMT);
+  return(!U3STAbits.TRMT);
   }
 
 void putsUART1(unsigned int *buffer) {
@@ -1619,42 +2240,42 @@ void putsUART1(unsigned int *buffer) {
 
     // transmit till NULL character is encountered 
 
-  if(U6MODEbits.PDSEL == 3)        /* check if TX is 8bits or 9bits */
+  if(U3MODEbits.PDSEL == 3)        /* check if TX is 8bits or 9bits */
     {
         while(*buffer) {
-            while(U6STAbits.UTXBF); /* wait if the buffer is full */
-            U6TXREG = *buffer++;    /* transfer data word to TX reg */
+            while(U3STAbits.UTXBF); /* wait if the buffer is full */
+            U3TXREG = *buffer++;    /* transfer data word to TX reg */
         }
     }
   else {
         while(*temp_ptr) {
-            while(U6STAbits.UTXBF);  /* wait if the buffer is full */
-            U6TXREG = *temp_ptr++;   /* transfer data byte to TX reg */
+            while(U3STAbits.UTXBF);  /* wait if the buffer is full */
+            U3TXREG = *temp_ptr++;   /* transfer data byte to TX reg */
         }
     }
   }
 
 unsigned int ReadUART1(void) {
   
-  if(U6MODEbits.PDSEL == 3)
-    return (U6RXREG);
+  if(U3MODEbits.PDSEL == 3)
+    return (U3RXREG);
   else
-    return (U6RXREG & 0xFF);
+    return (U3RXREG & 0xFF);
   }
 
 void WriteUART1(unsigned int data) {
   
-  if(U6MODEbits.PDSEL == 3)
-    U6TXREG = data;
+  if(U3MODEbits.PDSEL == 3)
+    U3TXREG = data;
   else
-    U6TXREG = data & 0xFF;
+    U3TXREG = data & 0xFF;
   }
 
-void __ISR(_UART1_RX_VECTOR) UART1_ISR(void) {
+void __ISR(_UART3_RX_VECTOR) UART3_ISR(void) {
   
-  LATDbits.LATD4 ^= 1;    // LED to indicate the ISR.
-  char curChar = U1RXREG;
-  IFS3bits.U1RXIF = 0;  // Clear the interrupt flag!
+  LED3 ^= 1;    // LED to indicate the ISR.
+  char curChar = U3RXREG;
+  IFS4bits.U3RXIF = 0;  // Clear the interrupt flag!
   }
 
 
@@ -1829,7 +2450,7 @@ int emulateKBD(BYTE ch) {
 		case 0x1f:    // Shift 
 			Keyboard[0] &= ~0b00000001;
 			break;
-      
+
 		}
   
 #elif ZX81
@@ -2519,8 +3140,8 @@ const char *keysFeed2="03E5\r";
 #elif ZX80
 //const char *keysFeed1="O\"ZX\",80\r";   // print
 const char *keysFeed1="4Y\r";   // 
-//const char *keysFeed2="1Fi=1 419\r";   // 1 for I=1 to 19  \x1F= SHIFT no non va così..
-const char *keysFeed2="1\r";   // 1 
+//const char *keysFeed2="1Fi=1 410\r";   // 1 for I=1 to 10  \x1F= SHIFT no non va così..
+const char *keysFeed2="1O17,\r";   // 1 
 const char *keysFeed3="2Oi,\r";   // 2 PRINT I,
 const char *keysFeed4="3G1\r";   // 
 const char *keysFeed5="R\r";   // RUN
@@ -2541,11 +3162,12 @@ const char *keysFeed4="PRINT MEM,15,3*7 \r";   //
 const char *keysFeed5="PRONT\r";   // 
 #elif MSX
 const char *keysFeed2="PRINT \"CIAO\"\r";   // 
-const char *keysFeed1="PRINT 512,476    \r";   // 
+const char *keysFeed1="PRINT 512,476 :COLOR 3\r";   // 11=giallo
 const char *keysFeed3="PRINT 25003000 : PRINT VDP(1)\r";   // 
 const char *keysFeed4="PRINT FRE(0),15,7*7 \r";   // 
-const char *keysFeed5="PRONT \r";   // 
-const char *keysFeed6="SOUND 0,500:SOUND 1,1:SOUND 7,254\r";   // 
+const char *keysFeed5="SOUND 0,172:SOUND 1,1:SOUND 8,12:SOUND 7,190\r";   // C 4° ottava=261Hz  https://www.msx.org/wiki/SOUND
+//const char *keysFeed6="SCREEN ,,0:PRONT \x19 \r";   // CAPS-lock non va... 4/7/24
+const char *keysFeed6="\x19";   // CAPS-lock non va... 4/7/24
 #endif
 
 void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
@@ -2786,7 +3408,7 @@ void __ISR(_TIMER_3_VECTOR,ipl4SRS) TMR_ISR(void) {
 		}
   if(keysFeed[keysFeedPtr]) {
     dividerEmulKbd++;
-    if(dividerEmulKbd>=500 /*300*/) {   // ~.2Hz per emulazione tastiera! (più veloce di tot non va...))
+    if(dividerEmulKbd>=400 /*300*/) {   // ~.2Hz per emulazione tastiera! (più veloce di tot non va...))
       dividerEmulKbd=0;
       if(!keysFeedPhase) {
 #ifdef NEZ80
