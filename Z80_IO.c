@@ -1,6 +1,8 @@
 //http://z80-heaven.wikidot.com/instructions-set
 //https://gist.github.com/seanjensengrey/f971c20d05d4d0efc0781f2f3c0353da
-//#warning CFR Z80HW per modifiche a gestione flag... 2022
+//2025 questo è ok con i test! (#warning CFR Z80HW per modifiche a gestione flag... 2022
+// ci sono ulteriori istruzioni "undocumented/extended" da TEST... verificare (cmq chissene
+//  p.es. 		le varie DD CB nn e FD CB nn dai test IL REGISTRO SEMBRA OPPOSTO rispetto a https://clrhome.org/table/ ! verificare
 
 #include <stdio.h>
 #include <ctype.h>
@@ -317,6 +319,10 @@ xché??	t &= 0x7fff;
 #ifdef SKYNET
 	else if((t-0x4000) < ROM_SIZE2) {			// SKYNET
 		i=rom_seg2[t-0x4000];
+		}
+#elif GALAKSIJA
+	else if((t-ROM_SIZE2) < ROM_SIZE2) {			// 
+		i=rom_seg2[t-ROM_SIZE2];
 		}
 #endif
 	else if(t >= RAM_START && t < (RAM_START+RAM_SIZE)) {
@@ -930,10 +936,9 @@ gestire 0xffff per subslot... ?? qua
 		t-=0x4000;
 		i=MAKEWORD(rom_seg2[t],rom_seg2[t+1]);
 		}
-#endif
-#ifdef GALAKSIJA
-	else if((t-0x1000) < ROM_SIZE2) {			// GALAKSIJA
-		t-=0x1000;
+#elif GALAKSIJA
+	else if((t-ROM_SIZE) < ROM_SIZE2) {			// GALAKSIJA
+		t-=ROM_SIZE;
 		i=MAKEWORD(rom_seg2[t],rom_seg2[t+1]);
 		}
 #endif

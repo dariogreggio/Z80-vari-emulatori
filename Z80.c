@@ -57,10 +57,6 @@ union __attribute__((__packed__)) Z_REG {
     } b;
 //    } _bc1,_de1,_hl1,_af1,_af2,_bc2,_de2,_hl2;
   };
-union __attribute__((__packed__)) Z_REGISTERS {
-  BYTE  b[8];
-  union Z_REG r[4];
-  };
 
 #define ID_CARRY 0x1
 #define ID_ADDSUB 0x2
@@ -80,6 +76,20 @@ union __attribute__((__packed__)) REGISTRO_F {
     unsigned int Zero: 1;
     unsigned int Sign: 1;
     };
+  };
+union Z_REG_FLAG {
+  SWORD x;
+  struct { 
+    BYTE l;
+		union REGISTRO_F f;
+    } b;
+  };
+union Z_REGISTERS {
+  BYTE  b[8];
+	struct {
+		union Z_REG r[3];
+		union Z_REG_FLAG r3;
+		};
   };
 union __attribute__((__packed__)) OPERAND {
   BYTE *reg8;
@@ -108,16 +118,15 @@ int Emulate(int mode) {
  H = 100
  L = 101*/
 #define _a regs1.r[3].b.l //
-	// in TEORIA, REGISTRO_F dovrebbe appartenere qua... ho patchato pop af push ecc, SISTEMARE!! _f.b
-  // n.b. anche che A/F sono invertiti rispetto agli altri, v. push/pop
-#define _f_af regs1.r[3].b.h //
+	// (in TEORIA, REGISTRO_F dovrebbe appartenere qua... ho patchato pop af push ecc, SISTEMARE!! _f.b
+  // n.b. anche che A/F sono invertiti rispetto agli altri, v. push/pop e EX AF,AF'
 #define _b regs1.r[0].b.h
 #define _c regs1.r[0].b.l
 #define _d regs1.r[1].b.h
 #define _e regs1.r[1].b.l
 #define _h regs1.r[2].b.h
 #define _l regs1.r[2].b.l
-#define _af regs1.r[3].x
+#define _af regs1.r3
 #define _bc regs1.r[0].x
 #define _de regs1.r[1].x
 #define _hl regs1.r[2].x
@@ -129,11 +138,11 @@ int Emulate(int mode) {
 #define WORKING_BITPOS2 (1 << ((Pipe2.b.h & 0x38) >> 3))
     
 	SWORD _pc=0;
-	SWORD _ix=0;
+	union Z_REG _ix;
 #ifdef Z80_EXTENDED
   BYTE _ixh,_ixl;     // UNIRE ovviamente! o usare LO/HIBYTE
 #endif
-	SWORD _iy=0;
+	union Z_REG _iy;
 #ifdef Z80_EXTENDED
   BYTE _iyh,_iyl;     // UNIRE ovviamente!
 #endif
@@ -144,7 +153,7 @@ int Emulate(int mode) {
   union Z_REGISTERS regs1,regs2;
   union RESULT res1,res2,res3;
 //  union OPERAND op1,op2;
-	union REGISTRO_F _f;
+#define _f _af.b.f
 	union REGISTRO_F _f1;
 	/*register*/ SWORD i;
   int c=0;
@@ -165,11 +174,20 @@ int Emulate(int mode) {
 	do {
 
 		c++;
-#ifdef MSX
-		if(!(c & 0xffff)) {
-#else
-		if(!(c & 0x3ffff)) {
+#ifdef ZX80
+#define VIDEO_DIVIDER 0x3ffff
+#elif ZX81
+#define VIDEO_DIVIDER 0x3ffff
+#elif SKYNET
+#define VIDEO_DIVIDER 0x3ffff
+#elif NEZ80
+#define VIDEO_DIVIDER 0x3ffff
+#elif GALAKSIJA
+#define VIDEO_DIVIDER 0x3ffff
+#elif MSX
+#define VIDEO_DIVIDER 0xffff
 #endif
+		if(!(c & VIDEO_DIVIDER)) {
       ClrWdt();
 // yield()
 #ifndef USING_SIMULATOR      
@@ -182,6 +200,7 @@ int Emulate(int mode) {
 #ifdef ZX80
 			UpdateScreen(0,192,_i);    // fare passate più piccole!
       // lineCntr usare?
+        VIDIRQ=1;
 #endif
 #ifdef ZX81
 			UpdateScreen(0,192,_i);    // fare passate più piccole!
@@ -215,6 +234,10 @@ extern BYTE i8255RegW[4];
 
 		if(ColdReset) {
 			ColdReset=0;
+			initHW();
+			memset(&regs1,0,sizeof(regs1));
+			memset(&regs2,0,sizeof(regs2));
+      _ix.x=_iy.x=0;
       CPUPins=DoReset;
 			continue;
       }
@@ -258,6 +281,10 @@ extern BYTE sense50Hz;
     if(TIMIRQ) {
       CPUPins |= DoIRQ;
       TIMIRQ=0;
+      }
+    if(VIDIRQ) {		// OCCHIO verificare, messi in windows 2025
+      CPUPins |= DoIRQ;
+      VIDIRQ=0;
       }
 #endif
 #ifdef MSX
@@ -305,43 +332,10 @@ extern BYTE sense50Hz;
 
       continue;
 			}
-		if((CPUPins & DoNMI) && !inEI) {
-			CPUPins &= ~(DoNMI | DoHalt);
-			IRQ_Enable2=IRQ_Enable1; IRQ_Enable1=0;
-			PutValue(--_sp,HIBYTE(_pc));
-			PutValue(--_sp,LOBYTE(_pc));
-			_pc=0x0066;
-			}
-		if((CPUPins & DoIRQ) && !inEI) {
-      
-      // LED2^=1;    // 
-			CPUPins &= ~DoHalt;
-      
-			if(IRQ_Enable1) {
-				IRQ_Enable1=IRQ_Enable2=0;    // When the CPU accepts a maskable interrupt, both IFF1 and IFF2 are automatically reset, 
-        //inhibiting further interrupts until the programmer issues a new EI instruction. [was: ma non sono troppo sicuro... boh?]
-				CPUPins &= ~DoIRQ;
-				PutValue(--_sp,HIBYTE(_pc));
-				PutValue(--_sp,LOBYTE(_pc));
-				switch(IRQ_Mode) {
-				  case 0:
-						i=0 /*bus_dati*/;
-						// DEVE ESEGUIRE i come istruzione!!
-            				  	_pc=  i  ;
-
-				  	break;
-				  case 1:
-				  	_pc=0x0038;
-				  	break;
-				  case 2:
-				  	_pc=(((SWORD)_i) << 8) | (0 /*bus_dati*/ << 1) | 0;
-				  	break;
-				  }
-				}
-			}
 
 		// buttare fuori il valore di _r per il refresh... :)
     _r++;
+    _r &= 0x7f;
   
 		if(CPUPins & DoHalt) {
       //mettere ritardino per analogia con le istruzioni?
@@ -433,6 +427,7 @@ extern BYTE sense50Hz;
 			case 1:   // LD BC,nn ecc
 			case 0x11:
 			case 0x21:
+like_0x1:
 #define WORKING_REG16 regs1.r[(Pipe1 & 0x30) >> 4].x
 			  WORKING_REG16=Pipe2.x;
 			  _pc+=2;
@@ -455,6 +450,7 @@ extern BYTE sense50Hz;
 			case 0x24:
 			case 0x2c:
 			case 0x3c:
+like_0x4:
 				WORKING_REG ++;
         res3.b.l=WORKING_REG;
         
@@ -473,6 +469,7 @@ aggInc:
 			case 0x25:
 			case 0x2d:
 			case 0x3d:
+like_0x5:
 				WORKING_REG --;
         res3.b.l=WORKING_REG;
         
@@ -491,6 +488,7 @@ aggDec:
 			case 0x26:
 			case 0x2e:
 			case 0x3e:
+like_0x6:
 			  WORKING_REG=Pipe2.b.l;
 			  _pc++;
 				break;
@@ -505,13 +503,12 @@ aggRotate:
 				break;
                                          
 			case 8:   // EX AF,AF'
-        _f_af=_f.b;
-        
-			  res3.x=_af;
-				_af=regs2.r[3].x;
-				regs2.r[3].x=res3.x;
-
-        _f.b=_f_af;
+			  res3.b.l=_a;
+			  res3.b.h=_f.b;
+				_a=regs2.r[3].b.h;
+				_f.b=regs2.r[3].b.l;
+				regs2.r[3].b.l=res3.b.h;
+				regs2.r[3].b.h=res3.b.l;
 				break;
 
 			case 9:   // ADD HL,BC ecc
@@ -552,7 +549,8 @@ aggRotate:
 				break;
 
 			case 0x12:    // LD (DE),A
-			  PutValue(_de,_a);
+like_0x12:
+				PutValue(_de,_a);
 				break;
 
       case 0x17:    // RLA
@@ -592,25 +590,38 @@ aggRotate:
 			  _pc+=2;
 				break;
 
-			case 0x27:		// DAA
-        res3.x=res1.x=_a;
-        i=_f.Carry;
-        _f.Carry=0;
-        if((_a & 0xf) > 9 || _f.HalfCarry) {
-          res3.x+=6;
-          _a=res3.b.l;
-          _f.Carry= i || HIBYTE(res3.x);
-          _f.HalfCarry=1;
-          }
-        else
-          _f.HalfCarry=0;
-        if((res1.b.l>0x99) || i) {
-          _a+=0x60;  
-          _f.Carry=1;
-          }
-        else
-          _f.Carry=0;
-        goto calcParity;
+			case 0x27:		// DAA		https://stackoverflow.com/questions/8119577/z80-daa-instruction
+				i=0;
+				if(_f.HalfCarry || ((_a & 0xF) > 9) )
+          i++;
+				if(_f.Carry || (_a > 0x99) ) {
+					i += 2;
+					_f.Carry = 1;
+					}
+			 
+				// builds final H flag
+				if(_f.AddSub && !_f.HalfCarry)
+					_f.HalfCarry=0;
+				else {
+					if(_f.AddSub && _f.HalfCarry)
+						_f.HalfCarry = (((_a & 0x0F)) < 6);
+					else
+						_f.HalfCarry = ((_a & 0x0F) >= 0x0A);
+					}
+    
+				switch(i) {
+					case 1:
+            _a += (_f.AddSub) ? 0xFA : 0x06; // -6:6
+            break;
+					case 2:
+            _a += (_f.AddSub) ? 0xA0 : 0x60; // -0x60:0x60
+            break;
+					case 3:
+            _a += (_f.AddSub) ? 0x9A : 0x66; // -0x66:0x66
+            break;
+					}
+        res3.b.l=_a;
+        goto aggAnd4;
 				break;
 
       case 0x28:    // JR z
@@ -751,6 +762,7 @@ aggRotate:
 			case 0x7c:
 			case 0x7d:
 			case 0x7f:
+like_0x78:
 				WORKING_REG=WORKING_REG2;
 				break;
 
@@ -785,6 +797,7 @@ aggRotate:
 			case 0x84:
 			case 0x85:
 			case 0x87:
+like_0x80:
         res2.b.l=WORKING_REG2;
         
 aggSomma:
@@ -831,6 +844,7 @@ aggFlagBC:    // http://www.z80.info/z80sflag.htm
         
         _f.Zero=res3.b.l ? 0 : 1;
         _f.Sign=res3.b.l & 0x80 ? 1 : 0;
+// nb per unused:						https://jnz.dk/z80/flags.html
 				break;
 
 			case 0x86:    // ADD A,(HL)
@@ -845,6 +859,7 @@ aggFlagBC:    // http://www.z80.info/z80sflag.htm
 			case 0x8c:
 			case 0x8d:
 			case 0x8f:
+like_0x88:
         res2.b.l=WORKING_REG2;
         
 aggSommaC:
@@ -853,7 +868,7 @@ aggSommaC:
         res3.x=res1.x+res2.x+_f.Carry;
         _a=res3.b.l;
         _f.AddSub=0;
-        _f.HalfCarry = ((res1.b.l & 0xf) + (res2.b.l & 0xf)) >= 0x10 ? 1 : 0;   // 
+        _f.HalfCarry = ((res1.b.l & 0xf) + (res2.b.l & 0xf) + _f.Carry) >= 0x10 ? 1 : 0;   // 
 //#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore ma io credo di sì
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
 /*        if(res1.b.l & 0x80 && res2.b.l & 0x80)
@@ -877,6 +892,7 @@ aggSommaC:
 			case 0x94:
 			case 0x95:
 			case 0x97:
+like_0x90:
         res2.b.l=WORKING_REG2;
         
 aggSottr:
@@ -920,6 +936,7 @@ aggSottr:
 			case 0x9c:
 			case 0x9d:
 			case 0x9f:
+like_0x98:
         res2.b.l=WORKING_REG2;
         
 aggSottrC:
@@ -928,7 +945,7 @@ aggSottrC:
         res3.x=res1.x-res2.x-_f.Carry;
         _a=res3.b.l;
         _f.AddSub=1;
-        _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf)) & 0xf0  ? 1 : 0;   // 
+        _f.HalfCarry = ((res1.b.l & 0xf) - (res2.b.l & 0xf) - _f.Carry) & 0xf0  ? 1 : 0;   // 
 //#warning CONTARE IL CARRY NELL overflow?? no, pare di no (v. emulatore ma io credo di sì..
 //        _f.PV = !!(((res1.b.l & 0x40) + (res2.b.l & 0x40)) & 0x80) != !!(((res1.x & 0x80) + (res2.x & 0x80)) & 0x100);
 /*        if((res1.b.l & 0x80) != (res2.b.l & 0x80)) {
@@ -954,6 +971,7 @@ aggSottrC:
 			case 0xa4:
 			case 0xa5:
 			case 0xa7:
+like_0xa0:
 				_a &= WORKING_REG2;
         _f.HalfCarry=1;
         
@@ -963,6 +981,7 @@ aggAnd2:
         _f.Carry=0;
 aggAnd3:      // usato da IN 
         _f.AddSub=0;
+aggAnd4:			// usato da DAA
         _f.Zero=_a ? 0 : 1;
         _f.Sign=_a & 0x80 ? 1 : 0;
         // halfcarry è 1 fisso se AND e 0 se OR/XOR
@@ -976,7 +995,7 @@ calcParity:
           par ^= res3.b.l;
           res3.b.l= par >> 4;
           par ^= res3.b.l;
-          _f.PV=par & 1 ? 1 : 0;		// EVEN
+          _f.PV=par & 1 ? 0 : 1;		// EVEN=1
           }
 				break;
 
@@ -993,6 +1012,7 @@ calcParity:
 			case 0xac:
 			case 0xad:
 			case 0xaf:
+like_0xa8:
 				_a ^= WORKING_REG2;
         _f.HalfCarry=0;
         goto aggAnd;
@@ -1011,6 +1031,7 @@ calcParity:
 			case 0xb4:
 			case 0xb5:
 			case 0xb7:
+like_0xb0:
 				_a |= WORKING_REG2;
         _f.HalfCarry=0;
         goto aggAnd;
@@ -1029,6 +1050,7 @@ calcParity:
 			case 0xbc:
 			case 0xbd:
 			case 0xbf:
+like_0xb8:
 				res2.b.l=WORKING_REG2;
 				goto compare;
 				break;
@@ -1051,7 +1073,7 @@ calcParity:
 				WORKING_REG16B.h=GetValue(_sp++);
 				break;
 			case 0xf1:    
-				_f.b=_f_af=GetValue(_sp++);
+				_f.b=GetValue(_sp++);
 				_a=GetValue(_sp++);
 				break;
 
@@ -1081,9 +1103,8 @@ Jump:
 				PutValue(--_sp,WORKING_REG16B.l);
 				break;
 			case 0xf5:    // push af..
-        _f_af=_f.b;
 				PutValue(--_sp,_a);
-				PutValue(--_sp,_f_af);
+				PutValue(--_sp,_f.b);
 				break;
 
 			case 0xc6:    // ADD A,n
@@ -1127,7 +1148,7 @@ Return:
 
 
 			case 0xcb:
-        _pc++;
+        _pc++; 	  _r++;
 				switch(Pipe2.b.l) {
 					case 0x00:   // RLC r
 					case 0x01:
@@ -1379,6 +1400,7 @@ aggBit:
             _f.Zero=res3.b.l ? 0 : 1;
             _f.HalfCarry=1;
             _f.AddSub=0;
+						// secondo i test anche altri flag sono toccati...
 						break;
 
 					case 0x46:   // BIT (HL)
@@ -1539,7 +1561,6 @@ aggBit:
 
 					default:
 //				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-            Nop();
 						break;
 					}
 				break;
@@ -1600,6 +1621,7 @@ Call:
 				break;
 
 			case 0xd9:    // EXX
+like_0xd9:
         {
         BYTE n;
         for(n=0; n<3; n++) {
@@ -1630,9 +1652,10 @@ Call:
 				break;
 
 			case 0xdd:
+        _r++;
 				switch(GetPipe(_pc++)) {
 					case 0xcb:   //
-#define IX_OFFSET (_ix+((signed char)Pipe2.b.l))
+#define IX_OFFSET (_ix.x+((signed char)Pipe2.b.l))
 #define WORKING_REG_DD_CB regs1.b[Pipe2.b.h & 7]
 						switch(Pipe2.b.h) {		// il 4° byte!
 #ifdef Z80_EXTENDED
@@ -1646,12 +1669,14 @@ Call:
 								WORKING_REG_DD_CB = GetValue(IX_OFFSET);
     						_f.Carry= WORKING_REG_DD_CB & 0x80 ? 1 : 0;
 								WORKING_REG_DD_CB <<= 1;
-								WORKING_REG_DD_CB |= _f.Carry;
+								WORKING_REG_DD_CB |= _f.Carry;// dai test IL REGISTRO SEMBRA OPPOSTO rispetto a https://clrhome.org/table/ ! verificare
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
     						_pc+=2;
                 goto aggRotate2;
 								break;
 #endif
+
 							case 0x06:   // RLC (IX+
 								res3.b.l = GetValue(IX_OFFSET);
     						_f.Carry= res3.b.l & 0x80 ? 1 : 0;
@@ -1705,6 +1730,7 @@ Call:
 								WORKING_REG_DD_CB <<= 1;
 								WORKING_REG_DD_CB |= _f1.Carry;
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -1735,6 +1761,7 @@ Call:
 								if(_f1.Carry)
 									WORKING_REG_DD_CB |= 0x80;
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -1763,6 +1790,7 @@ Call:
 								_f.Carry=WORKING_REG_DD_CB & 0x80 ? 1 : 0;
 								WORKING_REG_DD_CB <<= 1;
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -1789,6 +1817,7 @@ Call:
 								WORKING_REG_DD_CB >>= 1;
 								if(WORKING_REG_DD_CB & 0x40)
 									WORKING_REG_DD_CB |= 0x80;
+								PutValue(IX_OFFSET,res3.b.l);
                 res3.b.l=WORKING_REG_DD_CB;
         				_pc+=2;
                 goto aggRotate2;
@@ -1818,6 +1847,7 @@ Call:
 								WORKING_REG_DD_CB <<= 1;
 								WORKING_REG_DD_CB |= 1;
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -1844,6 +1874,7 @@ Call:
 								_f.Carry=WORKING_REG_DD_CB & 0x1;
 								WORKING_REG_DD_CB >>= 1;
                 res3.b.l=WORKING_REG_DD_CB;
+								PutValue(IX_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -2088,35 +2119,74 @@ Call:
 
 							default:
 		//				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-                Nop();
 								break;
 							}
 						_pc+=2;
 						break;
             
+#ifdef Z80_EXTENDED
+					case 0x01:   // da test LD BC,nnnm
+					case 0x11:
+						goto like_0x1;
+						break;
+					case 0x12:
+						goto like_0x12;
+						break;
+#endif
+
 //#define WORKING_REG regs1.b[((Pipe1 & 0x38) >> 3) & 3]
 					case 0x09:   // ADD IX,BC
 					case 0x19:   // ADD IX,DE
             res2.x=WORKING_REG16;
             
 aggSommaIX:
-            res1.x=_ix;
+            res1.x=_ix.x;
     			  res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _ix = res3.x;
+    			  _ix.x = res3.x;
             _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
             goto aggFlagWC;
 						break;
+
+#ifdef Z80_EXTENDED
+					case 0x10:    // da test 
+						goto like_0x5;
+						break;
+					case 0x13:    // da test VERIFICARE alcuni
+					case 0x14:   
+					case 0x0c:
+					case 0x1c:
+						goto like_0x4;
+						break;
+					case 0x16:    // da test 
+					case 0x3e:
+						goto like_0x6;
+						break;
+					case 0x15:    // 
+					case 0x1d:   
+					case 0x05:
+					case 0x0d:
+						goto like_0x5;
+						break;
+#endif
+
+#ifdef Z80_EXTENDED
+					case 0x20:    // tipo NOP, da test
+						_pc++;
+						break;
+#endif
+
 					case 0x21:    // LD IX,nn
-						_ix = Pipe2.x;
+						_ix.x = Pipe2.x;
 						_pc+=2;
 						break;
 					case 0x22:    // LD (nn),IX
-						PutIntValue(Pipe2.x,_ix);
+						PutIntValue(Pipe2.x,_ix.x);
             _pc+=2;
 						break;
 					case 0x23:   // INC IX
-						_ix++;
+						_ix.x++;
 						break;
+
 #ifdef Z80_EXTENDED
 					case 0x24:    // INC IXh
 						_ixh++;
@@ -2132,18 +2202,23 @@ aggSommaIX:
 						_ixh=Pipe2.b.l;
 						_pc++;
 						break;
+					case 0x28:    // da test: sembra tipo un JR ofs
+						_pc+=(int8_t)Pipe2.b.l;
+						break;
 #endif
+
 					case 0x29:    // ADD IX,IX
-            res2.x=_ix;
+            res2.x=_ix.x;
             goto aggSommaIX;
 						break;
 					case 0x2a:    // LD IX,(nn)
-						_ix = GetIntValue(Pipe2.x);
+						_ix.x = GetIntValue(Pipe2.x);
 						_pc+=2;
 						break;
 					case 0x2b:    // DEC IX
-						_ix--;
+						_ix.x--;
 						break;
+
 #ifdef Z80_EXTENDED
 					case 0x2c:    // INC IXl
 						_ixl++;
@@ -2159,7 +2234,21 @@ aggSommaIX:
 						_ixl=Pipe2.b.l;
 						_pc++;
 						break;
+					case 0x31:
+						goto Call;		// tipo CALL, da test
+						break;
+					case 0x32:    // da test
+						PutValue(Pipe2.x,_a);
+						_pc+=2;
+						break;
+					case 0x33:    // da test
+						_sp++;
+						break;
+					case 0x38:    // da test: sembra tipo un JR ofs
+						_pc+=(int8_t)Pipe2.b.l+1;
+						break;
 #endif
+
 					case 0x34:    // INC (IX+n)
 						res3.b.l = GetValue(IX_OFFSET);
 						res3.b.l++;
@@ -2182,6 +2271,7 @@ aggSommaIX:
             res2.x=_sp;
             goto aggSommaIX;
 						break;
+
 #ifdef Z80_EXTENDED
 					case 0x44:    // LD r,IXh
 					case 0x4c:
@@ -2198,6 +2288,7 @@ aggSommaIX:
 						WORKING_REG = _ixl;
 						break;
 #endif
+
 					case 0x46:    // LD r,(IX+n)
 					case 0x4e:
 					case 0x56:
@@ -2229,7 +2320,7 @@ aggSommaIX:
 					case 0x6a:
 					case 0x6b:
 					case 0x6f:
-						_ixh=WORKING_REG2;
+						_ixl=WORKING_REG2;
 						break;
 					case 0x6c:
 						_ixl=_ixh;
@@ -2249,6 +2340,95 @@ aggSommaIX:
 						PutValue(IX_OFFSET,WORKING_REG2);
 						_pc++;
 						break;
+
+#ifdef Z80_EXTENDED
+					case 0x40:
+					case 0x41:
+					case 0x42:
+					case 0x43:
+					case 0x47:
+					case 0x48:
+					case 0x49:
+					case 0x4a:
+					case 0x4b:
+					case 0x4f:
+					case 0x50:
+					case 0x51:
+					case 0x52:
+					case 0x53:
+					case 0x57:
+					case 0x58:
+					case 0x59:
+					case 0x5a:
+					case 0x5b:
+					case 0x5f:
+					case 0x78:    // come senza 0xdd, dicono i test
+					case 0x79:
+					case 0x7a:
+					case 0x7b:
+					case 0x7f:
+						goto like_0x78;
+						break;
+#endif
+
+#ifdef Z80_EXTENDED
+					case 0x80:
+					case 0x81:
+					case 0x82:
+					case 0x83:
+					case 0x87:
+						goto like_0x80;
+						break;
+					case 0x88:
+					case 0x89:
+					case 0x8a:
+					case 0x8b:
+					case 0x8f:
+						goto like_0x88;
+						break;
+					case 0x90:
+					case 0x91:
+					case 0x92:
+					case 0x93:
+					case 0x97:
+						goto like_0x90;
+						break;
+					case 0x98:
+					case 0x99:
+					case 0x9a:
+					case 0x9b:
+					case 0x9f:
+						goto like_0x98;
+						break;
+					case 0xa0:
+					case 0xa1:
+					case 0xa2:
+					case 0xa3:
+					case 0xa7:
+						goto like_0xa0;
+						break;
+					case 0xa8:
+					case 0xa9:
+					case 0xaa:
+					case 0xab:
+					case 0xaf:
+						goto like_0xa8;
+						break;
+					case 0xb0:
+					case 0xb1:
+					case 0xb2:
+					case 0xb3:
+					case 0xb7:
+						goto like_0xb0;
+						break;
+					case 0xb8:
+					case 0xb9:
+					case 0xba:
+					case 0xbb:
+					case 0xbf:
+						goto like_0xb8;
+						break;
+#endif
 
 #ifdef Z80_EXTENDED
 					case 0x84:    // ADD A,IXh
@@ -2384,29 +2564,34 @@ aggSommaIX:
 						goto compare;
 						break;
 
+#ifdef Z80_EXTENDED
+					case 0xd9:    // da test
+						goto like_0xd9;
+						break;
+#endif
+
 					case 0xe1:    // POP IX
-						_ix=GetValue(_sp++);
-						_ix |= ((SWORD)GetValue(_sp++)) << 8;
+						_ix.b.l=GetValue(_sp++);
+						_ix.b.h=GetValue(_sp++);
 						break;
 					case 0xe3:    // EX (SP),IX
 						res3.x=GetIntValue(_sp);
-						PutIntValue(_sp,_ix);
-						_ix=res3.x;
+						PutIntValue(_sp,_ix.x);
+						_ix.x=res3.x;
 						break;
 					case 0xe5:    // PUSH IX
-						PutValue(--_sp,HIBYTE(_ix));
-						PutValue(--_sp,LOBYTE(_ix));
+						PutValue(--_sp,_ix.b.h);
+						PutValue(--_sp,_ix.b.l);
 						break;
 					case 0xe9:    // JP (IX)
-					  _pc=_ix;
+					  _pc=_ix.x;
 						break;
 					case 0xf9:    // LD SP,IX
-					  _sp=_ix;
+					  _sp=_ix.x;
 						break;
 
 					default:
 //				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-            Nop();
 						break;
 					}
 				break;
@@ -2479,6 +2664,7 @@ aggSommaIX:
 				break;
 
 			case 0xed:      // ED instructions
+				_r++;
 				switch(GetPipe(_pc++)) {
 #ifdef Z80_EXTENDED
 					case 0x00:    // IN0
@@ -2597,6 +2783,7 @@ aggFlagW:
 aggFlagWC:
      				_f.Carry=!!HIWORD(res3.d);
 //i flag tutti solo per ADC/SBC se no solo carry/halfcarry
+// nb per unused:						https://jnz.dk/z80/flags.html
 						break;
 					case 0x4a:    // ADC HL,BC ecc
 					case 0x5a:
@@ -2894,7 +3081,6 @@ aggCPI:
 
 					default:
 //				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-            Nop();
 						break;
 					}
 				break;
@@ -2968,9 +3154,10 @@ aggCPI:
 				break;
 
 			case 0xfd:
+        _r++;
 				switch(GetPipe(_pc++)) {
 					case 0xcb:
-#define IY_OFFSET (_iy+((signed char)Pipe2.b.l))
+#define IY_OFFSET (_iy.x+((signed char)Pipe2.b.l))
 #define WORKING_REG_FD_CB regs1.b[Pipe2.b.h & 7]
 						switch(Pipe2.b.h) {			// il 4° byte!
 #ifdef Z80_EXTENDED
@@ -2984,8 +3171,9 @@ aggCPI:
 								WORKING_REG_FD_CB = GetValue(IY_OFFSET);
 								_f.Carry=WORKING_REG_FD_CB & 0x80 ? 1 : 0;
 								WORKING_REG_FD_CB <<= 1;
-								WORKING_REG_FD_CB |= _f.Carry;
+								WORKING_REG_FD_CB |= _f.Carry;		// dai test IL REGISTRO SEMBRA OPPOSTO rispetto a https://clrhome.org/table/ ! verificare
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3014,6 +3202,7 @@ aggCPI:
 								if(_f.Carry)
 									WORKING_REG_FD_CB |= 0x80;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3043,6 +3232,7 @@ aggCPI:
 								WORKING_REG_FD_CB <<= 1;
 								WORKING_REG_FD_CB |= _f1.Carry;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3073,6 +3263,7 @@ aggCPI:
 								if(_f1.Carry)
 									WORKING_REG_FD_CB |= 0x80;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3101,6 +3292,7 @@ aggCPI:
 								_f.Carry=WORKING_REG_FD_CB & 0x80 ? 1 : 0;
 								WORKING_REG_FD_CB <<= 1;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3127,6 +3319,7 @@ aggCPI:
 								WORKING_REG_FD_CB >>= 1;
 								if(WORKING_REG_FD_CB & 0x40)
 									WORKING_REG_FD_CB |= 0x80;
+								PutValue(IY_OFFSET,res3.b.l);
                 res3.b.l=WORKING_REG_FD_CB;
         				_pc+=2;
                 goto aggRotate2;
@@ -3156,6 +3349,7 @@ aggCPI:
 								WORKING_REG_FD_CB <<= 1;
 								WORKING_REG_FD_CB |= 1;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3182,6 +3376,7 @@ aggCPI:
 								_f.Carry=WORKING_REG_FD_CB & 0x1;
 								WORKING_REG_FD_CB >>= 1;
                 res3.b.l=WORKING_REG_FD_CB;
+								PutValue(IY_OFFSET,res3.b.l);
         				_pc+=2;
                 goto aggRotate2;
 								break;
@@ -3426,34 +3621,72 @@ aggCPI:
 
 							default:
 		//				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-                Nop();
 								break;
 							}
 						_pc+=2;
 						break;
             
+#ifdef Z80_EXTENDED
+					case 0x01:   // da test LD BC,nnnm
+					case 0x11:
+						goto like_0x1;
+						break;
+					case 0x12:
+						goto like_0x12;
+						break;
+#endif
+
 					case 0x09:    // ADD IY,BC ecc
 					case 0x19:
             res2.x=WORKING_REG16;
             
 aggSommaIY:            
-            res1.x=_iy;
+            res1.x=_iy.x;
             res3.d=(DWORD)res1.x+(DWORD)res2.x;
-    			  _iy = res3.x;
+    			  _iy.x = res3.x;
             _f.HalfCarry = ((res1.x & 0xfff) + (res2.x & 0xfff)) >= 0x1000 ? 1 : 0;   // 
             _f.AddSub=0;
             goto aggFlagWC;
 						break;
+
+#ifdef Z80_EXTENDED
+					case 0x10:    // da test 
+						goto like_0x5;
+						break;
+					case 0x13:    // da test VERIFICARE alcuni
+					case 0x14:   
+					case 0x0c:
+					case 0x1c:
+						goto like_0x4;
+						break;
+					case 0x16:    // da test 
+					case 0x3e:
+						goto like_0x6;
+						break;
+					case 0x15:    // 
+					case 0x1d:   
+					case 0x05:
+					case 0x0d:
+						goto like_0x5;
+						break;
+#endif
+
+#ifdef Z80_EXTENDED
+					case 0x20:    // tipo NOP, da test
+						_pc++;
+						break;
+#endif
+
 					case 0x21:    // LD IY,nn
-						_iy = Pipe2.x;
+						_iy.x = Pipe2.x;
 						_pc+=2;
 						break;
 					case 0x22:    // LD (nn),IY
-						PutIntValue(Pipe2.x,_iy);
+						PutIntValue(Pipe2.x,_iy.x);
             _pc+=2;
 						break;
 					case 0x23:    // INC IY
-						_iy++;
+						_iy.x++;
 						break;
 #ifdef Z80_EXTENDED
 					case 0x24:    // INC IYh
@@ -3470,18 +3703,23 @@ aggSommaIY:
 						_iyh=Pipe2.b.l;
 						_pc++;
 						break;
+					case 0x28:    // da test: sembra tipo un JR ofs
+						_pc+=(int8_t)Pipe2.b.l;
+						break;
 #endif
+
 					case 0x29:    // ADD IY,IY
-            res2.x=_iy;
+            res2.x=_iy.x;
             goto aggSommaIY;
 						break;
 					case 0x2a:    // LD IY,(nn)
-						_iy = GetIntValue(Pipe2.x);
+						_iy.x = GetIntValue(Pipe2.x);
 						_pc+=2;
 						break;
 					case 0x2b:    // DEC IY
-						_iy--;
+						_iy.x--;
 						break;
+
 #ifdef Z80_EXTENDED
 					case 0x2c:    // INC IYl
 						_iyl++;
@@ -3497,7 +3735,21 @@ aggSommaIY:
 						_iyl=Pipe2.b.l;
 						_pc++;
 						break;
+					case 0x31:
+						goto Call;		// tipo CALL, da test
+						break;
+					case 0x32:    // da test
+						PutValue(Pipe2.x,_a);
+						_pc+=2;
+						break;
+					case 0x33:    // da test
+						_sp++;
+						break;
+					case 0x38:    // da test: sembra tipo un JR ofs
+						_pc+=(int8_t)Pipe2.b.l+1;
+						break;
 #endif
+
 					case 0x34:    // INC (IY+)
 						res3.b.l = GetValue(IY_OFFSET);
 						res3.b.l++;
@@ -3588,6 +3840,95 @@ aggSommaIY:
 						PutValue(IY_OFFSET,WORKING_REG2);
 						_pc++;
 						break;
+
+#ifdef Z80_EXTENDED
+					case 0x40:// come senza 0xfd, dicono i test
+					case 0x41:
+					case 0x42:
+					case 0x43:
+					case 0x47:
+					case 0x48:
+					case 0x49:
+					case 0x4a:
+					case 0x4b:
+					case 0x4f:
+					case 0x50:
+					case 0x51:
+					case 0x52:
+					case 0x53:
+					case 0x57:
+					case 0x58:
+					case 0x59:
+					case 0x5a:
+					case 0x5b:
+					case 0x5f:
+					case 0x78:    // come senza 0xdd, dicono i test
+					case 0x79:
+					case 0x7a:
+					case 0x7b:
+					case 0x7f:
+						goto like_0x78;
+						break;
+#endif
+
+#ifdef Z80_EXTENDED
+					case 0x80:
+					case 0x81:
+					case 0x82:
+					case 0x83:
+					case 0x87:
+						goto like_0x80;
+						break;
+					case 0x88:
+					case 0x89:
+					case 0x8a:
+					case 0x8b:
+					case 0x8f:
+						goto like_0x88;
+						break;
+					case 0x90:
+					case 0x91:
+					case 0x92:
+					case 0x93:
+					case 0x97:
+						goto like_0x90;
+						break;
+					case 0x98:
+					case 0x99:
+					case 0x9a:
+					case 0x9b:
+					case 0x9f:
+						goto like_0x98;
+						break;
+					case 0xa0:
+					case 0xa1:
+					case 0xa2:
+					case 0xa3:
+					case 0xa7:
+						goto like_0xa0;
+						break;
+					case 0xa8:
+					case 0xa9:
+					case 0xaa:
+					case 0xab:
+					case 0xaf:
+						goto like_0xa8;
+						break;
+					case 0xb0:
+					case 0xb1:
+					case 0xb2:
+					case 0xb3:
+					case 0xb7:
+						goto like_0xb0;
+						break;
+					case 0xb8:
+					case 0xb9:
+					case 0xba:
+					case 0xbb:
+					case 0xbf:
+						goto like_0xb8;
+						break;
+#endif
 
 #ifdef Z80_EXTENDED
 					case 0x84:    // ADD A,IYh
@@ -3719,29 +4060,34 @@ aggSommaIY:
 						goto compare;
 						break;
 
+#ifdef Z80_EXTENDED
+					case 0xd9:    // da test
+						goto like_0xd9;
+						break;
+#endif
+
 					case 0xe1:    // POP IY
-						_iy=GetValue(_sp++);
-						_iy |= ((SWORD)GetValue(_sp++)) << 8;
+						_iy.b.l=GetValue(_sp++);
+						_iy.b.h=GetValue(_sp++);
 						break;
 					case 0xe3:    // EX (SP),IY
 						res3.x=GetIntValue(_sp);
-						PutIntValue(_sp,_iy);
-						_iy=res3.x;
+						PutIntValue(_sp,_iy.x);
+						_iy.x=res3.x;
 						break;
 					case 0xe5:    // PUSH IY
-						PutValue(--_sp,HIBYTE(_iy));
-						PutValue(--_sp,LOBYTE(_iy));
+						PutValue(--_sp,_iy.b.h);
+						PutValue(--_sp,_iy.b.l);
 						break;
 					case 0xe9:    // JP (IY)
-					  _pc=_iy;
+					  _pc=_iy.x;
 						break;
 					case 0xf9:    // LD SP,IY
-					  _sp=_iy;
+					  _sp=_iy.x;
 						break;
 
 					default:
 //				wsprintf(myBuf,"Istruzione sconosciuta a %04x: %02x",_pc-1,GetValue(_pc-1));
-            Nop();
 						break;
 					}
 				break;
@@ -3769,6 +4115,77 @@ compare:
 				break;
 			
 			}
+
+		if((CPUPins & DoNMI) && !inEI) {
+			CPUPins &= ~(DoNMI | DoHalt);
+			IRQ_Enable2=IRQ_Enable1; IRQ_Enable1=0;
+			PutValue(--_sp,HIBYTE(_pc));
+			PutValue(--_sp,LOBYTE(_pc));
+			_pc=0x0066;
+			}
+		if((CPUPins & DoIRQ) && !inEI) {
+      
+      // LED2^=1;    // 
+			CPUPins &= ~DoHalt;
+      
+			if(IRQ_Enable1) {
+				IRQ_Enable1=IRQ_Enable2=0;    // When the CPU accepts a maskable interrupt, both IFF1 and IFF2 are automatically reset, 
+        //inhibiting further interrupts until the programmer issues a new EI instruction. [was: ma non sono troppo sicuro... boh?]
+				CPUPins &= ~DoIRQ;
+				PutValue(--_sp,HIBYTE(_pc));
+				PutValue(--_sp,LOBYTE(_pc));
+				switch(IRQ_Mode) {
+				  case 0:
+						i=0 /*bus_dati*/;
+						// DEVE ESEGUIRE i come istruzione!!
+            				  	_pc=  i  ;
+
+				  	break;
+				  case 1:
+				  	_pc=0x0038;
+				  	break;
+				  case 2:
+				  	_pc=(((SWORD)_i) << 8) | (0 /*bus_dati*/ << 1) | 0;
+				  	break;
+				  }
+				}
+			}
+    
+		if((CPUPins & DoNMI) && !inEI) {
+			CPUPins &= ~(DoNMI | DoHalt);
+			IRQ_Enable2=IRQ_Enable1; IRQ_Enable1=0;
+			PutValue(--_sp,HIBYTE(_pc));
+			PutValue(--_sp,LOBYTE(_pc));
+			_pc=0x0066;
+			}
+		if((CPUPins & DoIRQ) && !inEI) {
+      
+      // LED2^=1;    // 
+			CPUPins &= ~DoHalt;
+      
+			if(IRQ_Enable1) {
+				IRQ_Enable1=IRQ_Enable2=0;    // When the CPU accepts a maskable interrupt, both IFF1 and IFF2 are automatically reset, 
+        //inhibiting further interrupts until the programmer issues a new EI instruction. [was: ma non sono troppo sicuro... boh?]
+				CPUPins &= ~DoIRQ;
+				PutValue(--_sp,HIBYTE(_pc));
+				PutValue(--_sp,LOBYTE(_pc));
+				switch(IRQ_Mode) {
+				  case 0:
+						i=0 /*bus_dati*/;
+						// DEVE ESEGUIRE i come istruzione!!
+            				  	_pc=  i  ;
+
+				  	break;
+				  case 1:
+				  	_pc=0x0038;
+				  	break;
+				  case 2:
+				  	_pc=(((SWORD)_i) << 8) | (0 /*bus_dati*/ << 1) | 0;
+				  	break;
+				  }
+				}
+			}
+    
 		} while(!fExit);
 	}
 

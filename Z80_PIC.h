@@ -117,7 +117,7 @@ typedef DWORD COLORREF;
 #define FALSE 0
 
 
-enum {
+enum __attribute__((__packed__)) {
   DoReset=1,
   DoNMI=2,
   DoIRQ=4,

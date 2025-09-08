@@ -99,9 +99,9 @@
 
 
 const char CopyrightString[]= {'Z','8','0',' ','E','m','u','l','a','t','o','r',' ','v',
-	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '2','3','/','0','7','/','2','4', 0 };
+	VERNUMH+'0','.',VERNUML/10+'0',(VERNUML % 10)+'0',' ','-',' ', '0','7','/','0','9','/','2','5', 0 };
 
-const char Copyr1[]="(C) Dario's Automation 2019-2024 - G.Dar\xd\xa\x0";
+const char Copyr1[]="(C) Dario's Automation 2019-2025 - G.Dar\xd\xa\x0";
 
 
 
@@ -1283,24 +1283,24 @@ handle_sprites:
         for(py=0; py<ssize; py++) {
           ch1=*p1++;
           if(smag==16) {
-            writedata16x2(graphColors[ch2 & 0b10000000 ? color1 : color0],graphColors[ch2 & 0b10000000 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b1000000 ? color1 : color0],graphColors[ch2 & 0b1000000 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b100000 ? color1 : color0],graphColors[ch2 & 0b100000 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b10000 ? color1 : color0],graphColors[ch2 & 0b10000 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b1000 ? color1 : color0],graphColors[ch2 & 0b1000 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b100 ? color1 : color0],graphColors[ch2 & 0b100 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b10 ? color1 : color0],graphColors[ch2 & 0b10 ? color1 : color0]);
-            writedata16x2(graphColors[ch2 & 0b1 ? color1 : color0],graphColors[ch2 & 0b1 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b10000000 ? color1 : color0],graphColors[ch1 & 0b10000000 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b1000000 ? color1 : color0],graphColors[ch1 & 0b1000000 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b100000 ? color1 : color0],graphColors[ch1 & 0b100000 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b10000 ? color1 : color0],graphColors[ch1 & 0b10000 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b1000 ? color1 : color0],graphColors[ch1 & 0b1000 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b100 ? color1 : color0],graphColors[ch1 & 0b100 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b10 ? color1 : color0],graphColors[ch1 & 0b10 ? color1 : color0]);
+            writedata16x2(graphColors[ch1 & 0b1 ? color1 : color0],graphColors[ch1 & 0b1 ? color1 : color0]);
             }
           else {
-            writedata16(graphColors[ch2 & 0b10000000 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b1000000 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b100000 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b10000 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b1000 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b100 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b10 ? color1 : color0]); 
-            writedata16(graphColors[ch2 & 0b1 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b10000000 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b1000000 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b100000 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b10000 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b1000 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b100 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b10 ? color1 : color0]); 
+            writedata16(graphColors[ch1 & 0b1 ? color1 : color0]); 
             }
           j--;
           switch(j) {   // gestisco i "quadranti" sprite messi a cazzo...
@@ -2171,7 +2171,11 @@ void Timer_Init(void) {
 
 void PWM_Init(void) {
 
+  SYSKEY = 0x00000000;
+  SYSKEY = 0xAA996655;
+  SYSKEY = 0x556699AA;
   CFGCONbits.OCACLK=0;      // sceglie timer per PWM
+  SYSKEY = 0x00000000;
   
 #ifdef ILI9341
 	OC7CON = 0x0006;      // TimerX ossia Timer2; PWM mode no fault; Timer 16bit, TimerX
@@ -3059,9 +3063,21 @@ int emulateKBD(BYTE ch) {
 		case '/':
 			Keyboard[2] &= ~0b00010000;
 			break;
+		case 0x8:     // BS
+			Keyboard[7] &= ~0b00100000;
+			break;
+		case '\t':
+			Keyboard[7] &= ~0b00001000;
+			break;
 		case '\r':
 			Keyboard[7] &= ~0b10000000;
 			break;
+		case '\x1b':
+			Keyboard[7] &= ~0b00000100;
+			break;
+//		case VK_PAUSE:
+//			Keyboard[7] &= ~0b00010000;
+//			break;
       
 		case 0xa6:    // F6
 			Keyboard[6] &= ~0b00000001;
@@ -3104,6 +3120,12 @@ int emulateKBD(BYTE ch) {
 		case 0x5:     // DEL
 			Keyboard[8] &= ~0b00001000;
 			break;
+		case 0x6:			// INS
+			Keyboard[8] &= ~0b00000100;
+			break;
+//		case VK_HOME:    // 
+//			Keyboard[8] &= ~0b00000010;
+//			break;
 		case 0x1f:    // Shift 
 			Keyboard[6] &= ~0b00000001;
 			break;
